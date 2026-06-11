@@ -1,4 +1,5 @@
 streamlit
-yfinance
+yfinance>=0.2.65
+curl_cffi
 matplotlib
 pandas
