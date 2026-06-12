@@ -207,6 +207,7 @@ def compute_signals(c: pd.Series, v):
     """종가(c)와 거래량(v)으로 신호를 계산한다. 국내/미국 공용."""
     r_now = float(rsi(c).iloc[-1])
     ret5 = float((c.iloc[-1] / c.iloc[-6] - 1) * 100) if len(c) > 6 else 0.0
+    day_ret = float((c.iloc[-1] / c.iloc[-2] - 1) * 100) if len(c) > 2 else 0.0
 
     vol_ratio = 0.0
     if v is not None and len(v) > 21:
@@ -221,12 +222,15 @@ def compute_signals(c: pd.Series, v):
     recent_golden = bool(((ab == True) & (pr == False)).iloc[-5:].any())
 
     signals = []
-    if ret5 >= 10 and r_now >= 70:
-        signals.append("🔥 급등+과매수")
+    # 거래량이 평소(20일 평균)의 3배 이상 터졌을 때:
+    #  - 가격도 당일 +3% 이상 올랐으면 → 거래량 동반 급등 (시세 분출)
+    #  - 가격은 아직 잠잠하면 → 거래량만 급증 (뭔가 꿈틀거리는 중)
+    if vol_ratio >= 3 and day_ret >= 3:
+        signals.append("🔥 거래량 급등+상승")
+    elif vol_ratio >= 3:
+        signals.append("📊 거래량 급증")
     if recent_golden:
         signals.append("⭐ 골든크로스(5일 내)")
-    if vol_ratio >= 3:
-        signals.append("📊 거래량 급증")
     if r_now <= 30:
         signals.append("🧊 과매도")
 
@@ -235,6 +239,7 @@ def compute_signals(c: pd.Series, v):
 
     return {
         "현재가": float(c.iloc[-1]),
+        "당일(%)": round(day_ret, 1),
         "5일 수익률(%)": round(ret5, 1),
         "RSI": round(r_now, 1),
         "거래량배수": round(vol_ratio, 1),
@@ -438,7 +443,7 @@ elif st.session_state.page == "guide":
    - 💠 <span style="color:{OB_C}">주황 다이아 = 과매수 진입</span>: RSI가 70을 넘은 날. 단기 과열 — 급등 중이라는 뜻이지만, 식으면서 조정이 올 수도 있다는 뜻이기도 해.
    - 💠 <span style="color:{OS_C}">하늘 다이아 = 과매도 진입</span>: RSI가 30 아래로 떨어진 날. 과하게 빠졌다는 신호.
 4. **RSI 패널**: 차트 맨 아래 주황 선. 70 위 구간(과매수)과 30 아래 구간(과매도)이 색으로 칠해져 있어.
-5. **시장 스캐너**: 시가총액 상위 종목들을 훑어서 🔥 급등+과매수, ⭐ 최근 골든크로스,
+5. **시장 스캐너**: 시가총액 상위 종목들을 훑어서 🔥 거래량 동반 급등, ⭐ 최근 골든크로스,
    📊 거래량 급증, 🧊 과매도 신호가 잡힌 종목만 추려줘.
 6. **백테스트**: "골든크로스에 사서 데드크로스에 팔았다면?"을 과거 데이터로 계산한 것.
    전략이 항상 이기는 게 아니라는 걸 직접 확인하는 게 이 도구의 진짜 목적이야.
@@ -513,8 +518,8 @@ elif st.session_state.page == "scanner":
     <div class="stat-value">{len(df)}개</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">🔥 급등+과매수</div>
-    <div class="stat-value">{int(df["신호"].str.contains("급등").sum())}개</div>
+    <div class="stat-label">🔥 거래량 급등+상승</div>
+    <div class="stat-value">{int(df["신호"].str.contains("급등+상승", regex=False).sum())}개</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">⭐ 최근 골든크로스</div>
