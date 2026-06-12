@@ -480,13 +480,19 @@ elif st.session_state.page == "scanner":
         today_key = "sig-v2-" + datetime.today().strftime("%Y-%m-%d-%H")
         # 캐시 갱신용 열쇠: 시간 단위 + 신호 버전.
         # 신호 계산 방식을 바꿀 때 "sig-v2"를 v3, v4로 올리면 옛날 캐시를 안 쓰게 됨.
+        scan_error = None
         try:
-            listing = load_us(us_market, top_n) if is_us else load_krx_top(top_n)
-        except Exception:
+            with st.spinner("종목 명단 가져오는 중... (나스닥은 명단이 커서 첫 스캔 때 좀 걸려)"):
+                listing = load_us(us_market, top_n) if is_us else load_krx_top(top_n)
+        except Exception as e:
             listing = None
+            scan_error = f"{type(e).__name__}: {e}"
 
         if listing is None or len(listing) == 0:
             st.error("종목 목록을 못 가져왔어. 잠시 후 다시 시도해줘.")
+            if scan_error:
+                with st.expander("자세한 오류 내용 (디버그용)"):
+                    st.code(scan_error)
         else:
             analyze_fn = analyze_one_us if is_us else analyze_one
             results = []
