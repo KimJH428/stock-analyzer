@@ -193,19 +193,23 @@ def load_krx_top(n: int):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_sp500(n: int):
-    """미국 S&P 500 명단에서 앞쪽 n개를 돌려준다. (전부 대형주라 순서는 큰 의미 없음)"""
+def load_us(market_name: str, n: int):
+    """미국 종목 명단(S&P500 또는 NASDAQ)에서 n개를 돌려준다.
+    시가총액 정보가 있으면 큰 순서대로, 없으면 명단 순서대로."""
     import FinanceDataReader as fdr
-    df = fdr.StockListing("S&P500")
+    df = fdr.StockListing(market_name)
+    cap_col = next((c for c in ["Marcap", "MarketCap", "marketCap"] if c in df.columns), None)
+    if cap_col:
+        df = df.sort_values(cap_col, ascending=False)
     df = df.head(n).copy()
-    df["Market"] = "S&P500"
-    df = df.rename(columns={"Symbol": "Code"})
+    df["Market"] = market_name
+    if "Symbol" in df.columns:
+        df = df.rename(columns={"Symbol": "Code"})
     return df[["Code", "Name", "Market"]].reset_index(drop=True)
 
 
 def compute_signals(c: pd.Series, v):
     """종가(c)와 거래량(v)으로 신호를 계산한다. 국내/미국 공용."""
-    r_now = float(rsi(c).iloc[-1])
     ret5 = float((c.iloc[-1] / c.iloc[-6] - 1) * 100) if len(c) > 6 else 0.0
     day_ret = float((c.iloc[-1] / c.iloc[-2] - 1) * 100) if len(c) > 2 else 0.0
 
@@ -231,8 +235,6 @@ def compute_signals(c: pd.Series, v):
         signals.append("📊 거래량 급증")
     if recent_golden:
         signals.append("⭐ 골든크로스(5일 내)")
-    if r_now <= 30:
-        signals.append("🧊 과매도")
 
     if not signals:
         return None  # 신호 없는 종목은 표에서 제외
@@ -241,7 +243,6 @@ def compute_signals(c: pd.Series, v):
         "현재가": float(c.iloc[-1]),
         "당일(%)": round(day_ret, 1),
         "5일 수익률(%)": round(ret5, 1),
-        "RSI": round(r_now, 1),
         "거래량배수": round(vol_ratio, 1),
         "신호": " · ".join(signals),
     }
@@ -440,11 +441,12 @@ elif st.session_state.page == "guide":
 3. **신호 읽는 법**
    - ⭐ <span style="color:{GOLD}">금색 별 = 골든크로스</span>: 단기 평균이 장기 평균을 위로 뚫은 날.
    - 🔻 <span style="color:{PURPLE}">보라 삼각형 = 데드크로스</span>: 반대로 아래로 뚫은 날.
-   - 💠 <span style="color:{OB_C}">주황 다이아 = 과매수 진입</span>: RSI가 70을 넘은 날. 단기 과열 — 급등 중이라는 뜻이지만, 식으면서 조정이 올 수도 있다는 뜻이기도 해.
-   - 💠 <span style="color:{OS_C}">하늘 다이아 = 과매도 진입</span>: RSI가 30 아래로 떨어진 날. 과하게 빠졌다는 신호.
-4. **RSI 패널**: 차트 맨 아래 주황 선. 70 위 구간(과매수)과 30 아래 구간(과매도)이 색으로 칠해져 있어.
+   - 💠 <span style="color:{OB_C}">주황 다이아 = 과매수 진입</span>: RSI(6일)가 70을 넘은 날. 단기 과열 — 식으면서 조정이 올 수도 있다는 뜻.
+   - 💠 <span style="color:{OS_C}">하늘 다이아 = 과매도 진입</span>: RSI(6일)가 30 아래로 내려간 날. 과하게 빠졌다는 신호.
+4. **RSI 패널**: 차트 맨 아래. 주황 선이 RSI 6일(민감), 회색 선이 RSI 20일(완만). 70 위(과매수)/30 아래(과매도) 구간이 색칠돼 있어.
+5. **볼린저밴드**: 캔들 주변의 옅은 회색 띠. 주가가 보통 머무는 범위(20일 평균 ± 표준편차 2배)라서, 띠 위로 뚫고 나가면 과열 쪽, 아래로 뚫리면 과매도 쪽으로 해석되곤 해.
 5. **시장 스캐너**: 시가총액 상위 종목들을 훑어서 🔥 거래량 동반 급등, ⭐ 최근 골든크로스,
-   📊 거래량 급증, 🧊 과매도 신호가 잡힌 종목만 추려줘.
+   📊 거래량 급증 신호가 잡힌 종목만 추려줘 (국내·S&P500·나스닥). 표에서 종목을 클릭하면 분석기로 바로 넘어가.
 6. **백테스트**: "골든크로스에 사서 데드크로스에 팔았다면?"을 과거 데이터로 계산한 것.
    전략이 항상 이기는 게 아니라는 걸 직접 확인하는 게 이 도구의 진짜 목적이야.
 7. 모든 신호는 **참고용**이야. 수수료·세금·슬리피지도 계산에 없어.
@@ -459,8 +461,9 @@ elif st.session_state.page == "scanner":
     with st.sidebar:
         st.button("← 홈으로", on_click=go_page, args=("home",), use_container_width=True)
         st.header("스캐너 설정")
-        market = st.radio("시장", ["🇰🇷 국내 (코스피+코스닥)", "🇺🇸 미국 (S&P 500)"])
+        market = st.radio("시장", ["🇰🇷 국내 (코스피+코스닥)", "🇺🇸 미국 (S&P 500)", "🇺🇸 미국 (나스닥)"])
         is_us = market.startswith("🇺🇸")
+        us_market = "NASDAQ" if "나스닥" in market else "S&P500"
         top_n = st.slider("스캔할 종목 수", 30, 300, 100, step=10)
         st.caption("국내는 시가총액 상위 순. 많이 고를수록 오래 걸려 (100개 기준 1분 정도).")
         scan_btn = st.button("🚨 시장 스캔 시작", type="primary", use_container_width=True)
@@ -476,7 +479,7 @@ elif st.session_state.page == "scanner":
     if scan_btn:
         today_key = datetime.today().strftime("%Y-%m-%d-%H")  # 시간 단위로 캐시 갱신
         try:
-            listing = load_sp500(top_n) if is_us else load_krx_top(top_n)
+            listing = load_us(us_market, top_n) if is_us else load_krx_top(top_n)
         except Exception:
             listing = None
 
@@ -526,15 +529,34 @@ elif st.session_state.page == "scanner":
     <div class="stat-value">{int(df["신호"].str.contains("골든").sum())}개</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">🧊 과매도</div>
-    <div class="stat-value">{int(df["신호"].str.contains("과매도").sum())}개</div>
+    <div class="stat-label">📊 거래량 급증 (가격 잠잠)</div>
+    <div class="stat-value">{int(df["신호"].str.contains("거래량 급증", regex=False).sum())}개</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
         st.write("")
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        st.caption("표 제목을 누르면 정렬돼. 궁금한 종목은 코드를 복사해서 분석기에서 검색해봐 "
-                   "(국내는 코드 뒤에 .KS 코스피 / .KQ 코스닥, 미국은 코드 그대로).")
+        # 표에서 행을 클릭하면 그 종목을 분석기에서 바로 연다
+        event = st.dataframe(
+            df, use_container_width=True, hide_index=True,
+            on_select="rerun", selection_mode="single-row", key="scan_table",
+        )
+        sel = event.selection.rows if event and event.selection else []
+        if sel:
+            row = df.iloc[sel[0]]
+            mkt = str(row["시장"])
+            if mkt == "KOSPI":
+                tick = f"{row['코드']}.KS"
+            elif mkt == "KOSDAQ":
+                tick = f"{row['코드']}.KQ"
+            else:
+                tick = str(row["코드"])
+            st.session_state.ticker_input = tick
+            st.session_state.query = {"ticker": tick, "period": "1y",
+                                      "short": 20, "long": 60}
+            st.session_state.page = "app"
+            del st.session_state["scan_table"]  # 선택 초기화 (안 하면 돌아왔을 때 또 이동함)
+            st.rerun()
+        st.caption("종목 행을 클릭하면 분석기에서 바로 차트가 열려. 표 제목을 누르면 정렬돼.")
 
 # ============================================================
 #  분석기 화면
@@ -545,7 +567,9 @@ else:
     with st.sidebar:
         st.button("← 홈으로", on_click=go_page, args=("home",), use_container_width=True)
         st.header("설정")
-        ticker = st.text_input("종목 코드", value="005930.KS")
+        if "ticker_input" not in st.session_state:
+            st.session_state.ticker_input = "005930.KS"
+        ticker = st.text_input("종목 코드", key="ticker_input")
         st.caption(
             "예시) 삼성전자: 005930.KS · SK하이닉스: 000660.KS · "
             "엔비디아: NVDA · 테슬라: TSLA"
@@ -595,12 +619,19 @@ else:
     golden_days = close.index[(above == True) & (prev == False)]
     dead_days = close.index[(above == False) & (prev == True)]
 
-    # ---------- RSI / 과매수·과매도 진입 지점 ----------
-    rsi_line = rsi(close)
-    ob_enter = (rsi_line >= 70) & (rsi_line.shift(1) < 70)   # 과매수 구간에 들어간 날
-    os_enter = (rsi_line <= 30) & (rsi_line.shift(1) > 30)   # 과매도 구간에 들어간 날
+    # ---------- RSI 6일/20일 + 볼린저밴드 ----------
+    rsi6 = rsi(close, 6)    # 민감한 단기선 — 과매수/과매도 마커는 이걸 기준으로
+    rsi20 = rsi(close, 20)  # 완만한 장기선
+    ob_enter = (rsi6 >= 70) & (rsi6.shift(1) < 70)   # 과매수 구간에 들어간 날
+    os_enter = (rsi6 <= 30) & (rsi6.shift(1) > 30)   # 과매도 구간에 들어간 날
     ob_days = close.index[ob_enter.fillna(False)]
     os_days = close.index[os_enter.fillna(False)]
+
+    # 볼린저밴드(20일, ±2σ): 주가가 보통 머무는 범위
+    bb_mid = close.rolling(20).mean()
+    bb_std = close.rolling(20).std()
+    bb_up = bb_mid + 2 * bb_std
+    bb_dn = bb_mid - 2 * bb_std
 
     # ---------- 백테스트 ----------
     trades = []
@@ -630,15 +661,19 @@ else:
     else:
         strategy_return = 0.0
 
-    rsi_now = float(rsi_line.iloc[-1]) if not pd.isna(rsi_line.iloc[-1]) else None
-    if rsi_now is None:
+    r6_now = float(rsi6.iloc[-1]) if not pd.isna(rsi6.iloc[-1]) else None
+    r20_now = float(rsi20.iloc[-1]) if not pd.isna(rsi20.iloc[-1]) else None
+    if r6_now is None:
         rsi_label, rsi_class = "-", ""
-    elif rsi_now >= 70:
-        rsi_label, rsi_class = f"{rsi_now:.0f} 과매수", "stat-up"
-    elif rsi_now <= 30:
-        rsi_label, rsi_class = f"{rsi_now:.0f} 과매도", "stat-down"
     else:
-        rsi_label, rsi_class = f"{rsi_now:.0f} 중립", ""
+        if r6_now >= 70:
+            state, rsi_class = "과매수", "stat-up"
+        elif r6_now <= 30:
+            state, rsi_class = "과매도", "stat-down"
+        else:
+            state, rsi_class = "중립", ""
+        r20_txt = f" · 20일 {r20_now:.0f}" if r20_now is not None else ""
+        rsi_label = f"{r6_now:.0f} {state}{r20_txt}"
 
     def ret_class(x):
         return "stat-up" if x > 0 else ("stat-down" if x < 0 else "")
@@ -659,7 +694,7 @@ else:
     <div class="stat-value {ret_class(strategy_return)}">{strategy_return:+.1f}%</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">현재 RSI</div>
+    <div class="stat-label">현재 RSI (6일 기준)</div>
     <div class="stat-value {rsi_class}">{rsi_label}</div>
   </div>
 </div>
@@ -670,6 +705,7 @@ else:
     tab_chart, tab_trades, tab_guide = st.tabs(["🕯️ 차트", "📋 매매 내역", "📖 읽는 법"])
 
     with tab_chart:
+        st.markdown(f"#### {q['ticker']} · {PERIOD_LABEL[q['period']]}")
         has_ohlc = all(c in data.columns for c in ["Open", "High", "Low"])
         has_volume = "Volume" in data.columns
 
@@ -693,6 +729,17 @@ else:
                 x=close.index, y=close, name="종가",
                 line=dict(color=TEXT, width=1.4),
             ), row=1, col=1)
+
+        # 볼린저밴드: 위/아래 경계선 사이를 옅게 칠함
+        fig.add_trace(go.Scatter(
+            x=bb_up.index, y=bb_up, name="볼린저밴드 (20일, ±2σ)",
+            line=dict(color="#9598A1", width=0.8, dash="dot"),
+        ), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=bb_dn.index, y=bb_dn, showlegend=False,
+            line=dict(color="#9598A1", width=0.8, dash="dot"),
+            fill="tonexty", fillcolor="rgba(149,152,161,0.08)",
+        ), row=1, col=1)
 
         fig.add_trace(go.Scatter(
             x=ma_s.index, y=ma_s, name=f"MA{s_win}",
@@ -746,10 +793,14 @@ else:
                 marker_color=vol_colors, opacity=0.55,
             ), row=2, col=1)
 
-        # RSI 패널: 70 위/30 아래 구간을 색으로 칠하고 기준선 표시
+        # RSI 패널: 6일(민감)/20일(완만) 두 줄, 70 위/30 아래 구간 색칠
         fig.add_trace(go.Scatter(
-            x=rsi_line.index, y=rsi_line, name="RSI(14)",
+            x=rsi6.index, y=rsi6, name="RSI(6)",
             line=dict(color=RSI_C, width=1.4),
+        ), row=3, col=1)
+        fig.add_trace(go.Scatter(
+            x=rsi20.index, y=rsi20, name="RSI(20)",
+            line=dict(color="#B0BEC5", width=1.1),
         ), row=3, col=1)
         fig.add_hrect(y0=70, y1=100, fillcolor="rgba(255,109,0,0.10)",
                       line_width=0, row=3, col=1)
@@ -767,8 +818,6 @@ else:
             xaxis_rangeslider_visible=False,
             legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
             margin=dict(l=10, r=10, t=30, b=10),
-            title=dict(text=f"{q['ticker']}  ·  {PERIOD_LABEL[q['period']]}",
-                       x=0.5, font=dict(size=15)),
         )
         fig.update_xaxes(gridcolor=PANEL, zeroline=False,
                          rangebreaks=[dict(bounds=["sat", "mon"])])
@@ -802,9 +851,10 @@ else:
         st.markdown(f"""
 - ⭐ <span style="color:{GOLD}">**금색 별 (골든크로스)**</span>: 단기({s_win}일) 평균이 장기({l_win}일) 평균을 **위로** 뚫은 날.
 - 🔻 <span style="color:{PURPLE}">**보라 삼각형 (데드크로스)**</span>: 반대로 **아래로** 뚫은 날.
-- 💠 <span style="color:{OB_C}">**주황 다이아 (과매수 진입)**</span>: RSI가 70을 넘은 날. 급등 중이라는 뜻이지만 과열이라 조정이 올 수도 있다는 뜻이기도 해.
-- 💠 <span style="color:{OS_C}">**하늘 다이아 (과매도 진입)**</span>: RSI가 30 아래로 내려간 날. 과하게 빠졌다는 신호.
-- **RSI 패널(맨 아래)**: 주황 선이 RSI(14). 주황 구간(70↑)이 과매수, 하늘 구간(30↓)이 과매도.
+- 💠 <span style="color:{OB_C}">**주황 다이아 (과매수 진입)**</span>: RSI(6일)가 70을 넘은 날. 과열이라 조정이 올 수도 있다는 뜻.
+- 💠 <span style="color:{OS_C}">**하늘 다이아 (과매도 진입)**</span>: RSI(6일)가 30 아래로 내려간 날. 과하게 빠졌다는 신호.
+- **RSI 패널(맨 아래)**: 주황 선 RSI(6), 회색 선 RSI(20). 주황 구간(70↑) 과매수, 하늘 구간(30↓) 과매도.
+- **볼린저밴드**: 캔들 주변 옅은 띠. 주가가 보통 머무는 범위(20일 평균 ±2σ). 띠를 위로 뚫으면 과열 쪽, 아래로 뚫리면 과매도 쪽 해석.
 - **전략 수익률 vs 기간 수익률**: 크로스 신호대로 사고팔았을 때와 그냥 들고 있었을 때의 비교.
   전략이 항상 이기는 게 아니라는 걸 직접 확인하는 게 이 도구의 진짜 목적이야.
 - 수수료·세금·슬리피지는 계산에 안 들어가 있어서 실제 수익률은 이것보다 낮아져.
