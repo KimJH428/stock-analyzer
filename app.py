@@ -192,21 +192,19 @@ def load_krx_top(n: int):
     return df[["Code", "Name", "Market"]].reset_index(drop=True)
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def analyze_one(code: str, today_key: str):
-    """종목 하나의 신호를 계산한다. today_key는 캐시를 시간 단위로 갱신하기 위한 값."""
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_sp500(n: int):
+    """미국 S&P 500 명단에서 앞쪽 n개를 돌려준다. (전부 대형주라 순서는 큰 의미 없음)"""
     import FinanceDataReader as fdr
-    start = datetime.today() - timedelta(days=130)
-    try:
-        df = fdr.DataReader(code, start)
-    except Exception:
-        return None
-    if df is None or len(df) < 40:
-        return None
+    df = fdr.StockListing("S&P500")
+    df = df.head(n).copy()
+    df["Market"] = "S&P500"
+    df = df.rename(columns={"Symbol": "Code"})
+    return df[["Code", "Name", "Market"]].reset_index(drop=True)
 
-    c = df["Close"].astype(float)
-    v = df["Volume"].astype(float) if "Volume" in df.columns else None
 
+def compute_signals(c: pd.Series, v):
+    """종가(c)와 거래량(v)으로 신호를 계산한다. 국내/미국 공용."""
     r_now = float(rsi(c).iloc[-1])
     ret5 = float((c.iloc[-1] / c.iloc[-6] - 1) * 100) if len(c) > 6 else 0.0
 
@@ -242,6 +240,53 @@ def analyze_one(code: str, today_key: str):
         "거래량배수": round(vol_ratio, 1),
         "신호": " · ".join(signals),
     }
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def analyze_one(code: str, today_key: str):
+    """국내 종목 하나의 신호 계산 (네이버/KRX 데이터). today_key는 캐시 갱신용."""
+    import FinanceDataReader as fdr
+    start = datetime.today() - timedelta(days=130)
+    try:
+        df = fdr.DataReader(code, start)
+    except Exception:
+        return None
+    if df is None or len(df) < 40:
+        return None
+    c = df["Close"].astype(float)
+    v = df["Volume"].astype(float) if "Volume" in df.columns else None
+    return compute_signals(c, v)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def analyze_one_us(symbol: str, today_key: str):
+    """미국 종목 하나의 신호 계산. 야후 먼저, 막히면 Stooq로 갈아탄다."""
+    df = None
+    # 1차: 야후
+    try:
+        tmp = yf.download(symbol, period="6mo", progress=False)
+        if tmp is not None and not tmp.empty:
+            if isinstance(tmp.columns, pd.MultiIndex):
+                tmp.columns = tmp.columns.get_level_values(0)
+            df = tmp
+    except Exception:
+        pass
+    # 2차: Stooq
+    if df is None or len(df) < 40:
+        try:
+            url = f"https://stooq.com/q/d/l/?s={symbol.lower()}.us&i=d"
+            tmp = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
+            start = datetime.today() - timedelta(days=190)
+            tmp = tmp[tmp.index >= pd.Timestamp(start)]
+            if not tmp.empty and "Close" in tmp.columns:
+                df = tmp
+        except Exception:
+            pass
+    if df is None or len(df) < 40:
+        return None
+    c = df["Close"].astype(float).dropna()
+    v = df["Volume"].astype(float) if "Volume" in df.columns else None
+    return compute_signals(c, v)
 
 
 # ---------- 페이지 이동 관리 ----------
@@ -409,30 +454,35 @@ elif st.session_state.page == "scanner":
     with st.sidebar:
         st.button("← 홈으로", on_click=go_page, args=("home",), use_container_width=True)
         st.header("스캐너 설정")
-        top_n = st.slider("스캔할 종목 수 (시가총액 상위)", 30, 300, 100, step=10)
-        st.caption("많이 고를수록 오래 걸려. 100개 기준 1분 정도.")
+        market = st.radio("시장", ["🇰🇷 국내 (코스피+코스닥)", "🇺🇸 미국 (S&P 500)"])
+        is_us = market.startswith("🇺🇸")
+        top_n = st.slider("스캔할 종목 수", 30, 300, 100, step=10)
+        st.caption("국내는 시가총액 상위 순. 많이 고를수록 오래 걸려 (100개 기준 1분 정도).")
         scan_btn = st.button("🚨 시장 스캔 시작", type="primary", use_container_width=True)
-        st.info("국내(코스피+코스닥) 종목만 스캔해. "
-                "신호는 **참고용**이지 매수 추천이 아니야 — 특히 과매수는 "
+        if is_us:
+            st.warning("미국 스캔은 데이터 통로(야후/Stooq) 사정에 따라 "
+                       "일부 종목이 빠지거나 더 오래 걸릴 수 있어.")
+        st.info("신호는 **참고용**이지 매수 추천이 아니야 — 특히 과매수는 "
                 "'지금 뜨겁다'는 뜻이면서 동시에 '조정이 올 수 있다'는 뜻이기도 해.")
 
     st.title("🚨 시장 스캐너")
-    st.caption("시가총액 상위 종목 중 오늘 기준 신호가 잡힌 종목만 추려서 보여줘.")
+    st.caption("선택한 시장의 주요 종목 중 오늘 기준 신호가 잡힌 종목만 추려서 보여줘.")
 
     if scan_btn:
         today_key = datetime.today().strftime("%Y-%m-%d-%H")  # 시간 단위로 캐시 갱신
         try:
-            listing = load_krx_top(top_n)
+            listing = load_sp500(top_n) if is_us else load_krx_top(top_n)
         except Exception:
             listing = None
 
         if listing is None or len(listing) == 0:
             st.error("종목 목록을 못 가져왔어. 잠시 후 다시 시도해줘.")
         else:
+            analyze_fn = analyze_one_us if is_us else analyze_one
             results = []
             prog = st.progress(0, text="스캔 준비 중...")
             for i, row in listing.iterrows():
-                res = analyze_one(row["Code"], today_key)
+                res = analyze_fn(row["Code"], today_key)
                 if res is not None:
                     results.append({
                         "종목명": row["Name"],
@@ -478,8 +528,8 @@ elif st.session_state.page == "scanner":
 """, unsafe_allow_html=True)
         st.write("")
         st.dataframe(df, use_container_width=True, hide_index=True)
-        st.caption("표 제목을 누르면 정렬돼. 궁금한 종목은 분석기에서 코드로 검색해봐 "
-                   "(코스피는 코드 뒤에 .KS, 코스닥은 .KQ).")
+        st.caption("표 제목을 누르면 정렬돼. 궁금한 종목은 코드를 복사해서 분석기에서 검색해봐 "
+                   "(국내는 코드 뒤에 .KS 코스피 / .KQ 코스닥, 미국은 코드 그대로).")
 
 # ============================================================
 #  분석기 화면
