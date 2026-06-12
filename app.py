@@ -19,12 +19,14 @@ from plotly.subplots import make_subplots
 
 warnings.filterwarnings("ignore")
 
-# ---------- 색상표 ----------
-BG      = "#131722"
-PANEL   = "#1E222D"
-BORDER  = "#2A2E39"
-TEXT    = "#D1D4DC"
-SUBTLE  = "#787B86"
+# ---------- 색상표 (다크 + 네온 그린 터미널 테마) ----------
+BG      = "#0B0F0D"   # 거의 검정에 가까운 배경
+PANEL   = "#121A16"
+BORDER  = "#1F2D25"
+TEXT    = "#D7E2DA"
+SUBTLE  = "#6F7F76"
+GREEN   = "#00FF88"   # 네온 그린 (포인트 색)
+GREEN_D = "#00C46A"   # 어두운 그린
 UP      = "#F23645"   # 상승 (한국식 빨강)
 DOWN    = "#3179F5"   # 하락 (한국식 파랑)
 GOLD    = "#FFC107"   # 골든크로스
@@ -71,7 +73,7 @@ st.markdown(f"""
 .stat-row {{ display: flex; gap: 14px; flex-wrap: wrap; }}
 .stat-card {{
     flex: 1; min-width: 180px;
-    background: linear-gradient(160deg, {PANEL} 0%, #181C27 100%);
+    background: linear-gradient(160deg, {PANEL} 0%, #0E1511 100%);
     border: 1px solid {BORDER}; border-radius: 14px;
     padding: 16px 20px;
     animation: fadeUp 0.55s ease backwards;
@@ -79,8 +81,8 @@ st.markdown(f"""
 }}
 .stat-card:hover {{
     transform: translateY(-3px);
-    border-color: {GOLD};
-    box-shadow: 0 8px 24px rgba(255, 193, 7, 0.10);
+    border-color: {GREEN};
+    box-shadow: 0 8px 26px rgba(0, 255, 136, 0.12);
 }}
 .stat-card:nth-child(1) {{ animation-delay: .05s; }}
 .stat-card:nth-child(2) {{ animation-delay: .12s; }}
@@ -96,7 +98,8 @@ st.markdown(f"""
 }}
 .stButton > button:hover {{
     transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    border-color: {GREEN};
+    box-shadow: 0 0 18px rgba(0, 255, 136, 0.22);
 }}
 [data-testid="stPlotlyChart"], .stTabs {{ animation: fadeUp 0.6s ease; }}
 h1 {{ letter-spacing: -0.5px; }}
@@ -116,8 +119,8 @@ AMBIENT_BG = f"""
     position: absolute; width: 55vw; height: 55vw; border-radius: 50%;
     filter: blur(140px); animation: breathe 9s ease-in-out infinite;
 }}
-.glow-1 {{ top: -28vw; right: -22vw; background: rgba(77,217,232,0.10); }}
-.glow-2 {{ bottom: -30vw; left: -24vw; background: rgba(255,193,7,0.07); animation-delay: 4.5s; }}
+.glow-1 {{ top: -28vw; right: -22vw; background: rgba(0,255,136,0.07); }}
+.glow-2 {{ bottom: -30vw; left: -24vw; background: rgba(0,196,106,0.06); animation-delay: 4.5s; }}
 </style>
 <div class="ambient-bg"><div class="glow glow-1"></div><div class="glow glow-2"></div></div>
 """
@@ -342,120 +345,196 @@ def go_page(page_name: str):
 #  홈 화면
 # ============================================================
 if st.session_state.page == "home":
+    # ---- 네온 그린 홀로그램 배경: 바닥+천장 그리드, 스캔 빔, 떠다니는 차트 ----
     st.markdown(f"""
 <style>
 .block-container {{ position: relative; z-index: 1; }}
 .holo-bg {{ position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }}
+
+/* 바닥 그리드 (네온 그린) */
 .holo-grid {{
-    position: absolute; left: -50%; bottom: -24%; width: 200%; height: 72%;
+    position: absolute; left: -50%; bottom: -24%; width: 200%; height: 64%;
     background-image:
-        linear-gradient(rgba(77,217,232,0.16) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(77,217,232,0.16) 1px, transparent 1px);
-    background-size: 46px 46px;
-    transform: perspective(620px) rotateX(62deg);
+        linear-gradient(rgba(0,255,136,0.14) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.14) 1px, transparent 1px);
+    background-size: 48px 48px;
+    transform: perspective(640px) rotateX(62deg);
     animation: gridScroll 8s linear infinite;
-    -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent 85%);
-    mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent 85%);
+    -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.95), transparent 85%);
+    mask-image: linear-gradient(to top, rgba(0,0,0,.95), transparent 85%);
 }}
-@keyframes gridScroll {{ from {{ background-position-y: 0; }} to {{ background-position-y: 46px; }} }}
+/* 천장 그리드 (더 옅게, 반대 방향) */
+.holo-grid-top {{
+    position: absolute; left: -50%; top: -26%; width: 200%; height: 50%;
+    background-image:
+        linear-gradient(rgba(0,255,136,0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.07) 1px, transparent 1px);
+    background-size: 48px 48px;
+    transform: perspective(640px) rotateX(-62deg);
+    animation: gridScroll 11s linear infinite reverse;
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.85), transparent 85%);
+    mask-image: linear-gradient(to bottom, rgba(0,0,0,.85), transparent 85%);
+}}
+@keyframes gridScroll {{ from {{ background-position-y: 0; }} to {{ background-position-y: 48px; }} }}
+
+/* 화면을 천천히 가로지르는 스캔 빔 */
+.scan-beam {{
+    position: absolute; top: 0; bottom: 0; width: 140px;
+    background: linear-gradient(90deg, transparent,
+                rgba(0,255,136,0.05) 40%, rgba(0,255,136,0.10) 50%,
+                rgba(0,255,136,0.05) 60%, transparent);
+    animation: beamSweep 13s linear infinite;
+}}
+@keyframes beamSweep {{ from {{ left: -12%; }} to {{ left: 108%; }} }}
+
+/* 제목 뒤 은은한 초록 광원 */
+.title-glow {{
+    position: absolute; top: 6%; left: 50%; transform: translateX(-50%);
+    width: 60vw; height: 34vh; border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(0,255,136,0.10), transparent 70%);
+    animation: breatheGlow 6s ease-in-out infinite;
+}}
+@keyframes breatheGlow {{ 0%,100% {{ opacity: .55; }} 50% {{ opacity: 1; }} }}
+
+/* 떠다니는 홀로그램 차트 */
 .holo-card {{
-    position: absolute; opacity: .45;
-    filter: drop-shadow(0 0 14px rgba(77,217,232,.55));
-    animation: holoFloat 8s ease-in-out infinite;
+    position: absolute; opacity: .5;
+    filter: drop-shadow(0 0 16px rgba(0,255,136,.5));
+    animation: holoFloat 9s ease-in-out infinite;
     transform-style: preserve-3d;
 }}
-.holo-gold   {{ filter: drop-shadow(0 0 14px rgba(255,193,7,.5)); }}
-.holo-purple {{ filter: drop-shadow(0 0 12px rgba(168,85,247,.55)); }}
 @keyframes holoFloat {{
-    0%,100% {{ transform: perspective(800px) rotateY(-14deg) translateY(0); }}
-    50%     {{ transform: perspective(800px) rotateY(-6deg)  translateY(-20px); }}
+    0%,100% {{ transform: perspective(800px) rotateY(-12deg) translateY(0); }}
+    50%     {{ transform: perspective(800px) rotateY(-5deg)  translateY(-22px); }}
 }}
 .holo-line {{
-    stroke-dasharray: 700; stroke-dashoffset: 700;
-    animation: holoDraw 6s ease-in-out infinite;
+    stroke-dasharray: 900; stroke-dashoffset: 900;
+    animation: holoDraw 7s ease-in-out infinite;
 }}
 @keyframes holoDraw {{
-    0%   {{ stroke-dashoffset: 700; opacity: .2; }}
+    0%   {{ stroke-dashoffset: 900; opacity: .15; }}
     55%  {{ stroke-dashoffset: 0;   opacity: 1;  }}
     85%  {{ stroke-dashoffset: 0;   opacity: 1;  }}
     100% {{ stroke-dashoffset: 0;   opacity: 0;  }}
 }}
 .holo-candles rect {{
     transform-origin: center bottom; transform-box: fill-box;
-    animation: candlePulse 3.2s ease-in-out infinite;
+    animation: candlePulse 3.4s ease-in-out infinite;
 }}
-.holo-candles rect:nth-child(odd)  {{ animation-delay: .6s; }}
-.holo-candles rect:nth-child(3n)   {{ animation-delay: 1.3s; }}
+.holo-candles rect:nth-child(odd) {{ animation-delay: .7s; }}
+.holo-candles rect:nth-child(3n)  {{ animation-delay: 1.4s; }}
 @keyframes candlePulse {{
     0%,100% {{ transform: scaleY(1); }}
-    50%     {{ transform: scaleY(1.35); }}
+    50%     {{ transform: scaleY(1.3); }}
+}}
+
+/* 가운데 네온 제목 */
+.hero-wrap {{ text-align: center; margin-top: 7vh; }}
+.neon-title {{
+    font-size: 76px; font-weight: 900; letter-spacing: 8px;
+    color: #EAFFF3; margin-bottom: 4px;
+    text-shadow:
+        0 0 6px {GREEN}, 0 0 18px {GREEN},
+        0 0 48px rgba(0,255,136,.55), 0 0 110px rgba(0,255,136,.3);
+    animation: neonPulse 3.6s ease-in-out infinite, fadeUp .8s ease;
+}}
+@keyframes neonPulse {{
+    0%,100% {{ text-shadow: 0 0 6px {GREEN}, 0 0 18px {GREEN},
+               0 0 48px rgba(0,255,136,.55), 0 0 110px rgba(0,255,136,.3); }}
+    50%     {{ text-shadow: 0 0 9px {GREEN}, 0 0 30px {GREEN},
+               0 0 70px rgba(0,255,136,.75), 0 0 150px rgba(0,255,136,.4); }}
+}}
+.hero-sub2 {{
+    color: {SUBTLE}; font-size: 16px; margin-top: 10px;
+    animation: fadeUp .8s ease .15s backwards;
+}}
+.chip-row2 {{
+    display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;
+    margin: 26px 0 10px 0; animation: fadeUp .8s ease .3s backwards;
+}}
+.chip2 {{
+    background: rgba(0,255,136,0.05); border: 1px solid {BORDER};
+    color: {TEXT}; padding: 8px 14px; border-radius: 999px; font-size: 13.5px;
 }}
 </style>
 <div class="holo-bg">
+  <div class="holo-grid-top"></div>
   <div class="holo-grid"></div>
-  <svg class="holo-card" style="top:10%; right:5%; animation-delay:.2s"
-       width="360" height="190" viewBox="0 0 360 190">
-    <polyline class="holo-line" fill="none" stroke="#4DD9E8" stroke-width="2.2"
-        points="0,160 35,128 60,142 95,95 125,112 160,64 190,86 225,48 260,66 300,30 360,42"/>
-    <polyline fill="none" stroke="#4DD9E8" stroke-width="1" opacity="0.25"
-        points="0,170 60,150 120,155 180,120 240,128 300,90 360,100"/>
+  <div class="scan-beam"></div>
+  <div class="title-glow"></div>
+
+  <!-- 오른쪽: 큰 네온 라인차트 -->
+  <svg class="holo-card" style="top:18%; right:3%; animation-delay:.2s"
+       width="430" height="230" viewBox="0 0 430 230">
+    <polyline class="holo-line" fill="none" stroke="#00FF88" stroke-width="2.4"
+        points="0,200 40,160 70,178 110,120 145,140 190,84 225,108 270,60 310,82 360,38 430,52"/>
+    <polyline fill="none" stroke="#00C46A" stroke-width="1" opacity="0.3"
+        points="0,212 70,190 140,196 210,152 280,160 350,114 430,124"/>
+    <circle cx="190" cy="84" r="4" fill="#00FF88"/>
+    <circle cx="360" cy="38" r="4" fill="#00FF88"/>
   </svg>
-  <svg class="holo-card holo-gold" style="bottom:14%; left:3%; animation-delay:1.4s"
-       width="320" height="180" viewBox="0 0 320 180">
+
+  <!-- 왼쪽 아래: 캔들 + 라인 -->
+  <svg class="holo-card" style="bottom:13%; left:2%; animation-delay:1.6s; opacity:.42"
+       width="340" height="190" viewBox="0 0 340 190">
     <g class="holo-candles">
-      <rect x="20"  y="100" width="12" height="58" fill="#F23645" opacity=".8"/>
-      <rect x="55"  y="118" width="12" height="40" fill="#3179F5" opacity=".8"/>
-      <rect x="90"  y="86"  width="12" height="72" fill="#F23645" opacity=".8"/>
-      <rect x="125" y="104" width="12" height="54" fill="#F23645" opacity=".8"/>
-      <rect x="160" y="124" width="12" height="34" fill="#3179F5" opacity=".8"/>
-      <rect x="195" y="72"  width="12" height="86" fill="#F23645" opacity=".8"/>
-      <rect x="230" y="92"  width="12" height="66" fill="#3179F5" opacity=".8"/>
-      <rect x="265" y="56"  width="12" height="102" fill="#F23645" opacity=".8"/>
+      <rect x="20"  y="106" width="12" height="60" fill="#F23645" opacity=".75"/>
+      <rect x="55"  y="124" width="12" height="42" fill="#3179F5" opacity=".75"/>
+      <rect x="90"  y="92"  width="12" height="74" fill="#F23645" opacity=".75"/>
+      <rect x="125" y="110" width="12" height="56" fill="#F23645" opacity=".75"/>
+      <rect x="160" y="130" width="12" height="36" fill="#3179F5" opacity=".75"/>
+      <rect x="195" y="78"  width="12" height="88" fill="#F23645" opacity=".75"/>
+      <rect x="230" y="98"  width="12" height="68" fill="#3179F5" opacity=".75"/>
+      <rect x="265" y="60"  width="12" height="106" fill="#F23645" opacity=".75"/>
     </g>
-    <polyline class="holo-line" fill="none" stroke="#FFC107" stroke-width="2"
-        style="animation-delay:1s"
-        points="10,130 50,118 90,100 130,112 170,88 210,96 250,62 300,44"/>
+    <polyline class="holo-line" fill="none" stroke="#00FF88" stroke-width="2"
+        style="animation-delay:1.2s"
+        points="10,136 50,124 90,106 130,118 170,92 210,100 250,66 320,46"/>
   </svg>
-  <svg class="holo-card holo-purple" style="top:16%; left:34%; animation-delay:2.6s; opacity:.3"
-       width="220" height="110" viewBox="0 0 220 110">
-    <polyline class="holo-line" fill="none" stroke="#A855F7" stroke-width="2"
-        style="animation-delay:2s"
-        points="0,80 30,60 55,72 85,40 115,52 150,26 185,38 220,18"/>
+
+  <!-- 왼쪽 위: 작은 스파크라인 -->
+  <svg class="holo-card" style="top:14%; left:6%; animation-delay:2.8s; opacity:.3"
+       width="240" height="120" viewBox="0 0 240 120">
+    <polyline class="holo-line" fill="none" stroke="#7CFFC4" stroke-width="2"
+        style="animation-delay:2.2s"
+        points="0,90 32,66 60,80 92,44 124,58 162,28 200,42 240,20"/>
   </svg>
 </div>
 """, unsafe_allow_html=True)
 
-    st.markdown('<p class="hero-title">📈 나만의 주식 분석기</p>', unsafe_allow_html=True)
+    # ---- 가운데 정렬 네온 제목 + 기능 칩 ----
     st.markdown(
-        '<p class="hero-sub">이동평균 골든/데드크로스 신호와 백테스트를 한 화면에서. '
-        'made by 제현 (with Claude)</p>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div class="chip-row">'
-        '<span class="chip">🕯️ 인터랙티브 캔들차트</span>'
-        '<span class="chip">⭐ 골든/데드크로스 감지</span>'
-        '<span class="chip">🌡️ RSI 과매수/과매도</span>'
-        '<span class="chip">🚨 급등 신호 스캐너</span>'
-        '<span class="chip">🧪 전략 백테스트</span>'
-        '</div>',
+        '<div class="hero-wrap">'
+        '<p class="neon-title">STOCK&nbsp;ANALYZER</p>'
+        '<p class="hero-sub2">이동평균 · RSI · 볼린저밴드 · 백테스트 · 시장 스캐너 — '
+        'made by 제현 (with Claude)</p>'
+        '<div class="chip-row2">'
+        '<span class="chip2">🕯️ 인터랙티브 캔들차트</span>'
+        '<span class="chip2">⭐ 골든/데드크로스</span>'
+        '<span class="chip2">🌡️ RSI 과매수/과매도</span>'
+        '<span class="chip2">🚨 급등 신호 스캐너</span>'
+        '<span class="chip2">🧪 전략 백테스트</span>'
+        '</div></div>',
         unsafe_allow_html=True,
     )
     st.write("")
 
-    c1, c2, c3, _ = st.columns([1, 1, 1, 1])
+    c1, c2, c3 = st.columns(3)
     with c1:
-        st.button("📊 분석기 열기", type="primary", use_container_width=True,
+        st.button("📊 분석기", type="primary", use_container_width=True,
                   on_click=go_page, args=("app",))
     with c2:
         st.button("🚨 시장 스캐너", use_container_width=True,
                   on_click=go_page, args=("scanner",))
     with c3:
-        st.button("📖 사용법 보기", use_container_width=True,
+        st.button("📖 사용법", use_container_width=True,
                   on_click=go_page, args=("guide",))
 
-    st.write("")
-    st.caption("⚠️ 이 도구는 과거 신호를 보여주는 거지 미래를 예측하거나 매수/매도를 추천하는 게 아니야.")
+    st.markdown(
+        f'<p style="text-align:center; color:{SUBTLE}; font-size:13px; margin-top:14px;">'
+        '⚠️ 이 도구는 과거 신호를 보여주는 거지 미래를 예측하거나 매수/매도를 추천하는 게 아니야.</p>',
+        unsafe_allow_html=True,
+    )
 
 # ============================================================
 #  사용법 화면
