@@ -328,6 +328,34 @@ def analyze_one_us(symbol: str, today_key: str):
     return compute_signals(c, v)
 
 
+# ---------- 실시간 모드용 함수들 ----------
+@st.cache_data(ttl=10, show_spinner=False)
+def fetch_minute(ticker: str):
+    """오늘 하루치 1분봉 데이터 (야후). 10초 동안만 저장해서 거의 매번 새로 받는다."""
+    t = ticker.upper().strip()
+    try:
+        df = yf.download(t, period="1d", interval="1m", progress=False)
+        if df is not None and not df.empty:
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            return df.dropna(subset=["Close"])
+    except Exception:
+        pass
+    return None
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def fetch_quote_kr(code6: str):
+    """네이버 실시간 시세 (국내 현재가 + 등락률). 분봉이 막혔을 때의 예비용."""
+    import requests
+    url = f"https://polling.finance.naver.com/api/realtime/domestic/stock/{code6}"
+    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+    d = r.json()["datas"][0]
+    price = float(str(d["closePrice"]).replace(",", ""))
+    rate = float(str(d.get("fluctuationsRatio", "0")).replace(",", ""))
+    return price, rate
+
+
 # ---------- 페이지 이동 관리 ----------
 if "page" not in st.session_state:
     st.session_state.page = "home"
@@ -696,10 +724,88 @@ else:
         short_win = st.number_input("단기 이동평균 (일)", value=20, min_value=2, max_value=120)
         long_win = st.number_input("장기 이동평균 (일)", value=60, min_value=5, max_value=240)
         run = st.button("분석 시작", type="primary", use_container_width=True)
+        live_mode = st.toggle("🔴 실시간 모드 (1분봉)")
         st.info("이 도구는 **과거** 신호를 보여주는 거지 "
                 "미래를 예측하거나 매수/매도를 추천하는 게 아니야.")
 
     st.title("📊 분석기")
+
+    # ---------- 🔴 실시간 모드 ----------
+    # 15초마다 화면이 스스로 새로고침되면서 분봉과 현재가가 갱신된다.
+    if live_mode:
+        from streamlit_autorefresh import st_autorefresh
+        st_autorefresh(interval=15_000, key="live_refresh")
+
+        t = ticker.upper().strip()
+        is_kr = t.endswith(".KS") or t.endswith(".KQ") or (t.isdigit() and len(t) == 6)
+
+        mdf = fetch_minute(t)
+        now_txt = datetime.now().strftime("%H:%M:%S")
+
+        if mdf is not None and len(mdf) > 1:
+            cur = float(mdf["Close"].iloc[-1])
+            day_open = float(mdf["Open"].iloc[0]) if "Open" in mdf.columns else float(mdf["Close"].iloc[0])
+            chg = (cur / day_open - 1) * 100
+
+            c1, c2, c3 = st.columns(3)
+            chg_cls = "stat-up" if chg > 0 else ("stat-down" if chg < 0 else "")
+            c1.markdown(f"""<div class="stat-card"><div class="stat-label">현재가</div>
+<div class="stat-value">{cur:,.2f}</div></div>""", unsafe_allow_html=True)
+            c2.markdown(f"""<div class="stat-card"><div class="stat-label">시가 대비</div>
+<div class="stat-value {chg_cls}">{chg:+.2f}%</div></div>""", unsafe_allow_html=True)
+            c3.markdown(f"""<div class="stat-card"><div class="stat-label">마지막 갱신</div>
+<div class="stat-value">{now_txt}</div></div>""", unsafe_allow_html=True)
+            st.write("")
+
+            lfig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                 row_heights=[0.78, 0.22], vertical_spacing=0.04)
+            lfig.add_trace(go.Scatter(
+                x=mdf.index, y=mdf["Close"], name="1분봉 종가",
+                line=dict(color=GREEN, width=1.6),
+                fill="tozeroy", fillcolor="rgba(0,255,136,0.05)",
+            ), row=1, col=1)
+            if "Volume" in mdf.columns:
+                lfig.add_trace(go.Bar(
+                    x=mdf.index, y=mdf["Volume"], name="거래량",
+                    marker_color=GREEN_D, opacity=0.45,
+                ), row=2, col=1)
+            lfig.update_layout(
+                height=560, paper_bgcolor=BG, plot_bgcolor=BG,
+                font=dict(color=TEXT, size=12), hovermode="x unified",
+                showlegend=False, margin=dict(l=10, r=10, t=20, b=10),
+            )
+            lfig.update_xaxes(gridcolor=PANEL, zeroline=False)
+            lfig.update_yaxes(gridcolor=PANEL, zeroline=False)
+            # 가격축이 0부터 시작하지 않게 (fill 때문에 생기는 문제 방지)
+            ymin, ymax = float(mdf["Close"].min()), float(mdf["Close"].max())
+            pad = (ymax - ymin) * 0.15 if ymax > ymin else ymax * 0.01
+            lfig.update_yaxes(range=[ymin - pad, ymax + pad], row=1, col=1)
+
+            st.plotly_chart(lfig, use_container_width=True,
+                            config={"scrollZoom": True, "displaylogo": False})
+            st.caption(f"🔴 15초마다 자동 갱신 · 무료 시세라 거래소에 따라 몇 분 지연될 수 있어 "
+                       f"· 장 마감 시간엔 마지막 거래일 데이터가 보여")
+        elif is_kr:
+            # 분봉이 막혔으면 네이버 현재가라도 보여준다
+            try:
+                code6 = t.replace(".KS", "").replace(".KQ", "")
+                price, rate = fetch_quote_kr(code6)
+                chg_cls = "stat-up" if rate > 0 else ("stat-down" if rate < 0 else "")
+                c1, c2, c3 = st.columns(3)
+                c1.markdown(f"""<div class="stat-card"><div class="stat-label">현재가 (네이버)</div>
+<div class="stat-value">{price:,.0f}</div></div>""", unsafe_allow_html=True)
+                c2.markdown(f"""<div class="stat-card"><div class="stat-label">등락률</div>
+<div class="stat-value {chg_cls}">{rate:+.2f}%</div></div>""", unsafe_allow_html=True)
+                c3.markdown(f"""<div class="stat-card"><div class="stat-label">마지막 갱신</div>
+<div class="stat-value">{now_txt}</div></div>""", unsafe_allow_html=True)
+                st.caption("분봉 데이터는 지금 못 가져와서 현재가만 갱신 중이야. (15초마다)")
+            except Exception as e:
+                st.error(f"'{t}' 실시간 데이터를 못 가져왔어.")
+                with st.expander("자세한 오류 내용 (디버그용)"):
+                    st.code(f"{type(e).__name__}: {e}")
+        else:
+            st.error(f"'{t}' 분봉 데이터를 못 가져왔어. 잠시 후 다시 시도해줘.")
+        st.stop()
 
     if run:
         if short_win >= long_win:
