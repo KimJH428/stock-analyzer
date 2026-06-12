@@ -167,7 +167,7 @@ if "query" not in st.session_state:
     st.session_state.query = None
 
 
-def go(page_name: str):
+def go_page(page_name: str):
     st.session_state.page = page_name
 
 
@@ -175,6 +175,105 @@ def go(page_name: str):
 #  홈 화면
 # ============================================================
 if st.session_state.page == "home":
+    # ---- 홀로그램 배경: 원근 그리드 바닥 + 떠다니는 네온 차트들 ----
+    # position:fixed로 화면 전체에 깔고, pointer-events:none이라 클릭을 방해하지 않음.
+    st.markdown(f"""
+<style>
+.block-container {{ position: relative; z-index: 1; }}
+.holo-bg {{ position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }}
+
+/* 바닥에 깔리는 원근 그리드 (트론 느낌) */
+.holo-grid {{
+    position: absolute; left: -50%; bottom: -24%; width: 200%; height: 72%;
+    background-image:
+        linear-gradient(rgba(77,217,232,0.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(77,217,232,0.16) 1px, transparent 1px);
+    background-size: 46px 46px;
+    transform: perspective(620px) rotateX(62deg);
+    animation: gridScroll 8s linear infinite;
+    -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent 85%);
+    mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent 85%);
+}}
+@keyframes gridScroll {{ from {{ background-position-y: 0; }} to {{ background-position-y: 46px; }} }}
+
+/* 떠다니는 홀로그램 차트 카드 */
+.holo-card {{
+    position: absolute; opacity: .45;
+    filter: drop-shadow(0 0 14px rgba(77,217,232,.55));
+    animation: holoFloat 8s ease-in-out infinite;
+    transform-style: preserve-3d;
+}}
+.holo-gold   {{ filter: drop-shadow(0 0 14px rgba(255,193,7,.5)); }}
+.holo-purple {{ filter: drop-shadow(0 0 12px rgba(168,85,247,.55)); }}
+@keyframes holoFloat {{
+    0%,100% {{ transform: perspective(800px) rotateY(-14deg) translateY(0); }}
+    50%     {{ transform: perspective(800px) rotateY(-6deg)  translateY(-20px); }}
+}}
+
+/* 선이 스스로 그려지는 효과 */
+.holo-line {{
+    stroke-dasharray: 700; stroke-dashoffset: 700;
+    animation: holoDraw 6s ease-in-out infinite;
+}}
+@keyframes holoDraw {{
+    0%   {{ stroke-dashoffset: 700; opacity: .2; }}
+    55%  {{ stroke-dashoffset: 0;   opacity: 1;  }}
+    85%  {{ stroke-dashoffset: 0;   opacity: 1;  }}
+    100% {{ stroke-dashoffset: 0;   opacity: 0;  }}
+}}
+
+/* 캔들이 숨쉬듯 커졌다 작아지는 효과 */
+.holo-candles rect {{
+    transform-origin: center bottom; transform-box: fill-box;
+    animation: candlePulse 3.2s ease-in-out infinite;
+}}
+.holo-candles rect:nth-child(odd)  {{ animation-delay: .6s; }}
+.holo-candles rect:nth-child(3n)   {{ animation-delay: 1.3s; }}
+@keyframes candlePulse {{
+    0%,100% {{ transform: scaleY(1); }}
+    50%     {{ transform: scaleY(1.35); }}
+}}
+</style>
+<div class="holo-bg">
+  <div class="holo-grid"></div>
+
+  <!-- 오른쪽 위: 청록 라인차트 -->
+  <svg class="holo-card" style="top:10%; right:5%; animation-delay:.2s"
+       width="360" height="190" viewBox="0 0 360 190">
+    <polyline class="holo-line" fill="none" stroke="#4DD9E8" stroke-width="2.2"
+        points="0,160 35,128 60,142 95,95 125,112 160,64 190,86 225,48 260,66 300,30 360,42"/>
+    <polyline fill="none" stroke="#4DD9E8" stroke-width="1" opacity="0.25"
+        points="0,170 60,150 120,155 180,120 240,128 300,90 360,100"/>
+  </svg>
+
+  <!-- 왼쪽 아래: 금색 라인 + 캔들 -->
+  <svg class="holo-card holo-gold" style="bottom:14%; left:3%; animation-delay:1.4s"
+       width="320" height="180" viewBox="0 0 320 180">
+    <g class="holo-candles">
+      <rect x="20"  y="100" width="12" height="58" fill="#F23645" opacity=".8"/>
+      <rect x="55"  y="118" width="12" height="40" fill="#3179F5" opacity=".8"/>
+      <rect x="90"  y="86"  width="12" height="72" fill="#F23645" opacity=".8"/>
+      <rect x="125" y="104" width="12" height="54" fill="#F23645" opacity=".8"/>
+      <rect x="160" y="124" width="12" height="34" fill="#3179F5" opacity=".8"/>
+      <rect x="195" y="72"  width="12" height="86" fill="#F23645" opacity=".8"/>
+      <rect x="230" y="92"  width="12" height="66" fill="#3179F5" opacity=".8"/>
+      <rect x="265" y="56"  width="12" height="102" fill="#F23645" opacity=".8"/>
+    </g>
+    <polyline class="holo-line" fill="none" stroke="#FFC107" stroke-width="2"
+        style="animation-delay:1s"
+        points="10,130 50,118 90,100 130,112 170,88 210,96 250,62 300,44"/>
+  </svg>
+
+  <!-- 왼쪽 위: 보라 스파크라인 -->
+  <svg class="holo-card holo-purple" style="top:16%; left:34%; animation-delay:2.6s; opacity:.3"
+       width="220" height="110" viewBox="0 0 220 110">
+    <polyline class="holo-line" fill="none" stroke="#A855F7" stroke-width="2"
+        style="animation-delay:2s"
+        points="0,80 30,60 55,72 85,40 115,52 150,26 185,38 220,18"/>
+  </svg>
+</div>
+""", unsafe_allow_html=True)
+
     st.markdown('<p class="hero-title">📈 나만의 주식 분석기</p>', unsafe_allow_html=True)
     st.markdown(
         '<p class="hero-sub">이동평균 골든/데드크로스 신호와 백테스트를 한 화면에서. '
@@ -195,10 +294,10 @@ if st.session_state.page == "home":
     c1, c2, _ = st.columns([1, 1, 2])
     with c1:
         st.button("📊 분석기 열기", type="primary", use_container_width=True,
-                  on_click=go, args=("app",))
+                  on_click=go_page, args=("app",))
     with c2:
         st.button("📖 사용법 보기", use_container_width=True,
-                  on_click=go, args=("guide",))
+                  on_click=go_page, args=("guide",))
 
     st.write("")
     st.caption("⚠️ 이 도구는 과거 신호를 보여주는 거지 미래를 예측하거나 매수/매도를 추천하는 게 아니야.")
@@ -207,7 +306,7 @@ if st.session_state.page == "home":
 #  사용법 화면
 # ============================================================
 elif st.session_state.page == "guide":
-    st.button("← 홈으로", on_click=go, args=("home",))
+    st.button("← 홈으로", on_click=go_page, args=("home",))
     st.title("📖 사용법")
     st.markdown(f"""
 1. **분석기 열기**에서 종목 코드와 기간을 고르고 **분석 시작**을 눌러.
@@ -228,7 +327,7 @@ elif st.session_state.page == "guide":
 # ============================================================
 else:
     with st.sidebar:
-        st.button("← 홈으로", on_click=go, args=("home",), use_container_width=True)
+        st.button("← 홈으로", on_click=go_page, args=("home",), use_container_width=True)
         st.header("설정")
         ticker = st.text_input("종목 코드", value="005930.KS")
         st.caption(
