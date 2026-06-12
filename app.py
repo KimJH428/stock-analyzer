@@ -477,7 +477,9 @@ elif st.session_state.page == "scanner":
     st.caption("선택한 시장의 주요 종목 중 오늘 기준 신호가 잡힌 종목만 추려서 보여줘.")
 
     if scan_btn:
-        today_key = datetime.today().strftime("%Y-%m-%d-%H")  # 시간 단위로 캐시 갱신
+        today_key = "sig-v2-" + datetime.today().strftime("%Y-%m-%d-%H")
+        # 캐시 갱신용 열쇠: 시간 단위 + 신호 버전.
+        # 신호 계산 방식을 바꿀 때 "sig-v2"를 v3, v4로 올리면 옛날 캐시를 안 쓰게 됨.
         try:
             listing = load_us(us_market, top_n) if is_us else load_krx_top(top_n)
         except Exception:
