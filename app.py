@@ -183,13 +183,43 @@ def fetch_ohlc(ticker: str, period: str):
 # ---------- 스캐너용 함수들 ----------
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_krx_top(n: int):
-    """국내(코스피+코스닥) 종목을 시가총액 순으로 정렬해 상위 n개 목록을 돌려준다."""
-    import FinanceDataReader as fdr
-    df = fdr.StockListing("KRX")
-    df = df[df["Market"].isin(["KOSPI", "KOSDAQ"])]
-    df = df[~df["Name"].str.contains("스팩", na=False)]  # 스팩 제외
-    df = df.sort_values("Marcap", ascending=False).head(n)
-    return df[["Code", "Name", "Market"]].reset_index(drop=True)
+    """국내(코스피+코스닥) 종목을 시가총액 순으로 상위 n개 돌려준다.
+    원래는 KRX 서버에서 명단을 받았는데, KRX가 해외 서버 요청을 막아서
+    네이버 금융 시가총액 페이지를 읽는 방식으로 우회한다."""
+    import requests, re
+    from io import StringIO
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+    frames = []
+    pages = (n - 1) // 50 + 1  # 한 페이지에 50종목씩
+
+    for sosok, mkt in [(0, "KOSPI"), (1, "KOSDAQ")]:
+        for page in range(1, pages + 1):
+            url = (f"https://finance.naver.com/sise/sise_market_sum.naver"
+                   f"?sosok={sosok}&page={page}")
+            r = requests.get(url, headers=headers, timeout=10)
+            r.encoding = "euc-kr"
+            html = r.text
+
+            # 종목명 → 코드 짝을 링크에서 뽑아낸다
+            code_map = {}
+            for m in re.finditer(r'code=(\d{6})"\s*class="tltle">([^<]+)', html):
+                code_map[m.group(2).strip()] = m.group(1)
+
+            tables = pd.read_html(StringIO(html))
+            df = max(tables, key=len)          # 페이지에서 제일 큰 표가 시총 순위표
+            df = df.dropna(subset=["종목명"])
+            df["Code"] = df["종목명"].map(code_map)
+            df = df.dropna(subset=["Code"])
+            df["Market"] = mkt
+            frames.append(df[["Code", "종목명", "Market", "시가총액"]])
+
+    out = pd.concat(frames).rename(columns={"종목명": "Name", "시가총액": "Marcap"})
+    out["Marcap"] = pd.to_numeric(out["Marcap"], errors="coerce")
+    out = out[~out["Name"].str.contains("스팩", na=False)]  # 스팩 제외
+    out = (out.sort_values("Marcap", ascending=False)
+              .drop_duplicates("Code").head(n))
+    return out[["Code", "Name", "Market"]].reset_index(drop=True)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
