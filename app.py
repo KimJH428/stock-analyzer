@@ -102,7 +102,6 @@ st.markdown(f"""
     box-shadow: 0 0 18px rgba(0, 255, 136, 0.22);
 }}
 [data-testid="stPlotlyChart"], .stTabs {{ animation: fadeUp 0.6s ease; }}
-[data-testid="stHeader"] {{ background: transparent; }}
 h1 {{ letter-spacing: -0.5px; }}
 </style>
 """, unsafe_allow_html=True)
@@ -139,6 +138,61 @@ def rsi(series: pd.Series, window: int = 14) -> pd.Series:
     loss = (-delta.clip(upper=0)).rolling(window).mean()
     rs = gain / loss
     return 100 - 100 / (1 + rs)
+
+
+def overheat_score(close: pd.Series):
+    """과열·위험 점수 (0~100). 높을수록 '이미 많이 올라서 지금 새로 들어가면 위험'.
+    예측이 아니라 현재 과열 정도를 요약하는 것. 낮다고 매수 신호가 아니다.
+    각 재료는 0~max점, 합쳐서 100점 만점으로 환산."""
+    if len(close) < 25:
+        return None, {}
+
+    parts = {}
+
+    # (1) RSI(6일) 과열: 70~85 구간을 0~25점으로
+    r = float(rsi(close, 6).iloc[-1])
+    parts["RSI 과열"] = max(0.0, min(25.0, (r - 70) / 15 * 25)) if r > 70 else 0.0
+
+    # (2) 신고가 대비 위치: 최근 60일 고점에 얼마나 붙어있나 (95%↑부터 점수)
+    hi = float(close.iloc[-60:].max()) if len(close) >= 60 else float(close.max())
+    ratio = float(close.iloc[-1]) / hi if hi > 0 else 0
+    parts["고점 근접"] = max(0.0, min(20.0, (ratio - 0.95) / 0.05 * 20)) if ratio > 0.95 else 0.0
+
+    # (3) 이동평균 이격도: 현재가가 20일선보다 얼마나 위로 떠 있나 (10%↑부터)
+    ma20 = float(close.rolling(20).mean().iloc[-1])
+    disp = (float(close.iloc[-1]) / ma20 - 1) * 100 if ma20 > 0 else 0
+    parts["이동평균 이격"] = max(0.0, min(20.0, (disp - 10) / 15 * 20)) if disp > 10 else 0.0
+
+    # (4) 단기 급등폭: 최근 20일 상승률 (20%↑부터)
+    ret20 = (float(close.iloc[-1]) / float(close.iloc[-21]) - 1) * 100 if len(close) > 21 else 0
+    parts["단기 급등"] = max(0.0, min(20.0, (ret20 - 20) / 30 * 20)) if ret20 > 20 else 0.0
+
+    # (5) 볼린저밴드 상단 돌파 정도
+    mid = close.rolling(20).mean()
+    std = close.rolling(20).std()
+    up = float((mid + 2 * std).iloc[-1])
+    midv = float(mid.iloc[-1])
+    if up > midv:
+        bb_pos = (float(close.iloc[-1]) - midv) / (up - midv)  # 1.0=상단, 0=중심
+        parts["밴드 상단"] = max(0.0, min(15.0, (bb_pos - 0.8) / 0.4 * 15)) if bb_pos > 0.8 else 0.0
+    else:
+        parts["밴드 상단"] = 0.0
+
+    total = round(sum(parts.values()))
+    return total, {k: round(v, 1) for k, v in parts.items()}
+
+
+def overheat_label(score):
+    """점수 → 단계/색."""
+    if score is None:
+        return "-", ""
+    if score >= 70:
+        return f"{score} 매우 과열", "stat-up"
+    if score >= 45:
+        return f"{score} 과열", "stat-up"
+    if score >= 25:
+        return f"{score} 주의", ""
+    return f"{score} 안전권", ""
 
 
 # ---------- 데이터 가져오기 (3단 예비 체계) ----------
@@ -273,12 +327,21 @@ def compute_signals(c: pd.Series, v):
     if not signals:
         return None  # 신호 없는 종목은 표에서 제외
 
+    oh, _ = overheat_score(c)
+    oh_mark = ""
+    if oh is not None:
+        if oh >= 70: oh_mark = f"🔴 매우과열 {oh}"
+        elif oh >= 45: oh_mark = f"🟠 과열 {oh}"
+        elif oh >= 25: oh_mark = f"🟡 주의 {oh}"
+        else: oh_mark = f"🟢 {oh}"
+
     return {
         "현재가": float(c.iloc[-1]),
         "당일(%)": round(day_ret, 1),
         "5일 수익률(%)": round(ret5, 1),
         "거래량배수": round(vol_ratio, 1),
         "신호": " · ".join(signals),
+        "과열도": oh_mark,
     }
 
 
@@ -615,7 +678,7 @@ elif st.session_state.page == "scanner":
     st.caption("선택한 시장의 주요 종목 중 오늘 기준 신호가 잡힌 종목만 추려서 보여줘.")
 
     if scan_btn:
-        today_key = "sig-v2-" + datetime.today().strftime("%Y-%m-%d-%H")
+        today_key = "sig-v3-" + datetime.today().strftime("%Y-%m-%d-%H")
         # 캐시 갱신용 열쇠: 시간 단위 + 신호 버전.
         # 신호 계산 방식을 바꿀 때 "sig-v2"를 v3, v4로 올리면 옛날 캐시를 안 쓰게 됨.
         scan_error = None
@@ -902,6 +965,10 @@ else:
     def ret_class(x):
         return "stat-up" if x > 0 else ("stat-down" if x < 0 else "")
 
+    # 과열·위험 점수 계산
+    oh_score, oh_parts = overheat_score(close)
+    oh_text, oh_class = overheat_label(oh_score)
+
     st.caption(f"데이터 출처: {source}")
     st.markdown(f"""
 <div class="stat-row">
@@ -910,19 +977,37 @@ else:
     <div class="stat-value">{last_price:,.0f}</div>
   </div>
   <div class="stat-card">
+    <div class="stat-label">현재 RSI (6일 기준)</div>
+    <div class="stat-value {rsi_class}">{rsi_label}</div>
+  </div>
+  <div class="stat-card">
     <div class="stat-label">기간 수익률 (그냥 들고 있었으면)</div>
     <div class="stat-value {ret_class(buy_hold_return)}">{buy_hold_return:+.1f}%</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">전략 수익률 (크로스 매매했으면)</div>
-    <div class="stat-value {ret_class(strategy_return)}">{strategy_return:+.1f}%</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">현재 RSI (6일 기준)</div>
-    <div class="stat-value {rsi_class}">{rsi_label}</div>
+    <div class="stat-label">⚠️ 과열·위험 점수</div>
+    <div class="stat-value {oh_class}">{oh_text}</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
+
+    # 과열 점수가 높으면 경고 배너 + 점수 분해
+    if oh_score is not None:
+        if oh_score >= 45:
+            st.warning(
+                f"**과열 신호 (점수 {oh_score}/100).** 이 종목은 이미 단기적으로 많이 오른 상태야. "
+                "지금 **새로 진입하는 건 위험**할 수 있어 — 고점에서 물릴 위험이 크다는 뜻이야. "
+                "이건 '팔아라'도 '떨어진다'도 아니고, '지금 들어가는 건 신중해라'는 신호야."
+            )
+        with st.expander(f"과열 점수는 어떻게 나온 거야? (현재 {oh_score}/100)"):
+            for k, v in oh_parts.items():
+                st.write(f"- {k}: +{v}")
+            st.caption(
+                "이 점수는 **예측이 아니라 현재 과열 정도를 요약**한 거야. "
+                "점수가 낮다고 '사도 좋다'는 뜻이 절대 아니고, 높다고 반드시 떨어지는 것도 아니야 "
+                "(과열인데 더 오르는 경우도 많아). 새로 진입할 때 'FOMO로 꼭대기에 뛰어드는 것'을 "
+                "막아주는 용도로만 써."
+            )
     st.write("")
 
     # ---------- 탭: 차트 / 매매 내역 / 읽는 법 ----------
@@ -1082,4 +1167,7 @@ else:
 - **전략 수익률 vs 기간 수익률**: 크로스 신호대로 사고팔았을 때와 그냥 들고 있었을 때의 비교.
   전략이 항상 이기는 게 아니라는 걸 직접 확인하는 게 이 도구의 진짜 목적이야.
 - 수수료·세금·슬리피지는 계산에 안 들어가 있어서 실제 수익률은 이것보다 낮아져.
+- **⚠️ 과열·위험 점수 (0~100)**: RSI 과열 + 고점 근접 + 이동평균 이격 + 단기 급등폭 + 볼린저밴드 위치를 합친 점수.
+  높을수록 '이미 많이 올라서 지금 새로 들어가면 위험'하다는 뜻. **이건 미래 예측이 아니라 현재 과열 정도를 요약한 거야.**
+  점수가 낮다고 '사도 좋다'는 신호가 절대 아니고, 높아도 더 오를 수 있어. FOMO로 꼭대기에 뛰어드는 걸 막는 용도로만 쓰면 돼.
 """, unsafe_allow_html=True)
