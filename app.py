@@ -102,6 +102,7 @@ st.markdown(f"""
     box-shadow: 0 0 18px rgba(0, 255, 136, 0.22);
 }}
 [data-testid="stPlotlyChart"], .stTabs {{ animation: fadeUp 0.6s ease; }}
+[data-testid="stHeader"] {{ background: transparent; }}
 h1 {{ letter-spacing: -0.5px; }}
 </style>
 """, unsafe_allow_html=True)
