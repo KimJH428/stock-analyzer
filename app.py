@@ -888,10 +888,19 @@ else:
     with st.spinner(f"{q['ticker']} 데이터 가져오는 중..."):
         data, source = fetch_ohlc(q["ticker"], q["period"])
 
-    if data is None or len(data) == 0:
-        st.error(
-            f"'{q['ticker']}' 데이터를 어느 창고에서도 못 가져왔어. "
-            "종목 코드를 확인하고, 맞다면 잠시 후 다시 시도해줘."
+    # 데이터가 아예 없거나, Close가 없거나, 이동평균 계산할 만큼 충분치 않으면 막는다
+    bad = (data is None or len(data) == 0 or "Close" not in getattr(data, "columns", []))
+    if not bad:
+        close = data["Close"].squeeze()
+        if not isinstance(close, pd.Series) or close.dropna().shape[0] < max(q["long"], 5):
+            bad = True
+    if bad:
+        st.warning(
+            f"**'{q['ticker']}'** 데이터를 충분히 못 가져왔어. 보통 이런 경우야:\n\n"
+            "- 종목 코드가 틀렸거나 존재하지 않는 종목 (예: 아직 상장 안 한 회사)\n"
+            "- 상장한 지 얼마 안 돼서 데이터가 장기 이동평균을 계산할 만큼 안 쌓인 경우\n"
+            "- 일시적으로 데이터 서버가 막힌 경우 (잠시 후 다시 시도)\n\n"
+            "종목 코드를 확인해줘. 한국 주식은 숫자+`.KS`(코스피)/`.KQ`(코스닥), 미국 주식은 영문 티커야."
         )
         st.stop()
 
