@@ -141,6 +141,27 @@ def rsi(series: pd.Series, window: int = 14) -> pd.Series:
     return 100 - 100 / (1 + rs)
 
 
+def atr_pct(high, low, close, window: int = 14):
+    """ATR(평균 변동폭)을 '현재가 대비 몇 %' 로 돌려준다.
+    그 종목이 평소 하루에 얼마나 출렁이는지의 척도. 고가/저가가 없으면 종가로 근사."""
+    close = close.astype(float)
+    if high is None or low is None:
+        # 고가/저가가 없으면 전일 종가 대비 변동폭으로 근사
+        tr = (close - close.shift(1)).abs()
+    else:
+        high = high.astype(float); low = low.astype(float)
+        prev = close.shift(1)
+        # True Range: 고저폭, 전일종가~고가, 전일종가~저가 중 최댓값
+        tr = pd.concat([(high - low),
+                        (high - prev).abs(),
+                        (low - prev).abs()], axis=1).max(axis=1)
+    atr = tr.rolling(window).mean().iloc[-1]
+    cur = float(close.iloc[-1])
+    if cur <= 0 or pd.isna(atr):
+        return None
+    return float(atr) / cur * 100  # 현재가 대비 %
+
+
 def overheat_score(close: pd.Series):
     """과열·위험 점수 (0~100). 높을수록 '이미 많이 올라서 지금 새로 들어가면 위험'.
     예측이 아니라 현재 과열 정도를 요약하는 것. 낮다고 매수 신호가 아니다.
@@ -297,8 +318,9 @@ def load_us(market_name: str, n: int):
     return df[["Code", "Name", "Market"]].reset_index(drop=True)
 
 
-def compute_signals(c: pd.Series, v):
-    """종가(c)와 거래량(v)으로 신호를 계산한다. 국내/미국 공용."""
+def compute_signals(c: pd.Series, v, high=None, low=None):
+    """종가(c)와 거래량(v)으로 신호를 계산한다. 국내/미국 공용.
+    high/low가 있으면 ATR(종목 변동성)로 손절·익절 폭을 종목마다 다르게 계산."""
     ret5 = float((c.iloc[-1] / c.iloc[-6] - 1) * 100) if len(c) > 6 else 0.0
     day_ret = float((c.iloc[-1] / c.iloc[-2] - 1) * 100) if len(c) > 2 else 0.0
 
@@ -330,19 +352,39 @@ def compute_signals(c: pd.Series, v):
 
     oh, _ = overheat_score(c)
     oh_mark = ""
+    oh_val = oh if oh is not None else 999  # 정렬용 (점수 없으면 맨 뒤로)
     if oh is not None:
         if oh >= 70: oh_mark = f"🔴 매우과열 {oh}"
         elif oh >= 45: oh_mark = f"🟠 과열 {oh}"
         elif oh >= 25: oh_mark = f"🟡 주의 {oh}"
         else: oh_mark = f"🟢 {oh}"
 
+    # 매매 가이드 (예측이 아니라 '미리 정하는 규칙')
+    # 손절폭 = 그 종목 ATR(평소 하루 변동폭)의 2배. 변동성 큰 종목은 멀리, 얌전하면 가까이.
+    cur = float(c.iloc[-1])
+    atrp = atr_pct(high, low, c)
+    if atrp is None:
+        stop_pct = 8.0  # ATR 계산 불가 시 기본값
+    else:
+        stop_pct = atrp * 2.0
+        stop_pct = max(4.0, min(20.0, stop_pct))  # 너무 극단적이지 않게 4~20%로 제한
+    target_pct = stop_pct * 1.5  # 익절 = 손절폭의 1.5배 (리스크:리워드 1:1.5)
+    stop = cur * (1 - stop_pct / 100)
+    target = cur * (1 + target_pct / 100)
+    # 전고점까지 남은 거리: 익절 목표가 현실적인지 점검
+    hi60 = float(c.iloc[-60:].max()) if len(c) >= 60 else float(c.max())
+    to_high = (hi60 / cur - 1) * 100 if cur > 0 else 0.0
+
     return {
-        "현재가": float(c.iloc[-1]),
+        "현재가": round(cur, 2),
         "당일(%)": round(day_ret, 1),
-        "5일 수익률(%)": round(ret5, 1),
-        "거래량배수": round(vol_ratio, 1),
         "신호": " · ".join(signals),
         "과열도": oh_mark,
+        "변동성(ATR%)": round(atrp, 1) if atrp is not None else None,
+        "손절선": f"{stop:,.2f}  (-{stop_pct:.0f}%)",
+        "익절목표": f"{target:,.2f}  (+{target_pct:.0f}%)",
+        "전고점까지(%)": round(to_high, 1),
+        "_oh": oh_val,  # 정렬 전용 (표시 전 제거됨)
     }
 
 
@@ -359,7 +401,9 @@ def analyze_one(code: str, today_key: str):
         return None
     c = df["Close"].astype(float)
     v = df["Volume"].astype(float) if "Volume" in df.columns else None
-    return compute_signals(c, v)
+    h = df["High"].astype(float) if "High" in df.columns else None
+    l = df["Low"].astype(float) if "Low" in df.columns else None
+    return compute_signals(c, v, h, l)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -390,7 +434,9 @@ def analyze_one_us(symbol: str, today_key: str):
         return None
     c = df["Close"].astype(float).dropna()
     v = df["Volume"].astype(float) if "Volume" in df.columns else None
-    return compute_signals(c, v)
+    h = df["High"].astype(float) if "High" in df.columns else None
+    l = df["Low"].astype(float) if "Low" in df.columns else None
+    return compute_signals(c, v, h, l)
 
 
 # ---------- 실시간 모드용 함수들 ----------
@@ -679,7 +725,7 @@ elif st.session_state.page == "scanner":
     st.caption("선택한 시장의 주요 종목 중 오늘 기준 신호가 잡힌 종목만 추려서 보여줘.")
 
     if scan_btn:
-        today_key = "sig-v3-" + datetime.today().strftime("%Y-%m-%d-%H")
+        today_key = "sig-v5-" + datetime.today().strftime("%Y-%m-%d-%H")
         # 캐시 갱신용 열쇠: 시간 단위 + 신호 버전.
         # 신호 계산 방식을 바꿀 때 "sig-v2"를 v3, v4로 올리면 옛날 캐시를 안 쓰게 됨.
         scan_error = None
@@ -713,7 +759,8 @@ elif st.session_state.page == "scanner":
             prog.empty()
 
             if results:
-                df = pd.DataFrame(results).sort_values("5일 수익률(%)", ascending=False)
+                df = pd.DataFrame(results).sort_values("_oh", ascending=True)
+                df = df.drop(columns=["_oh"])  # 정렬 전용 컬럼 제거
                 st.session_state.scan_df = df.reset_index(drop=True)
             else:
                 st.session_state.scan_df = pd.DataFrame()
@@ -767,6 +814,19 @@ elif st.session_state.page == "scanner":
             del st.session_state["scan_table"]  # 선택 초기화 (안 하면 돌아왔을 때 또 이동함)
             st.rerun()
         st.caption("종목 행을 클릭하면 분석기에서 바로 차트가 열려. 표 제목을 누르면 정렬돼.")
+        with st.expander("표 읽는 법 — 변동성 · 손절선 · 익절목표가 뭐야?"):
+            st.markdown(
+                "- **과열도 낮은 게 위로** 정렬돼 있어. 덜 과열된 = 새로 들어가기 그나마 나은 자리부터.\n"
+                "- **변동성(ATR%)**: 그 종목이 평소 하루에 평균 몇 % 출렁이는지. 이 값이 클수록 손절·익절 폭도 넓게 잡혀.\n"
+                "- **손절선**: 그 종목 변동성(ATR)의 2배만큼 아래. 여기까지 떨어지면 군말 없이 손절하는 가격. "
+                "변동성 큰 종목은 손절폭이 넓고(예: -16%), 얌전한 종목은 좁아(예: -5%) — **종목마다 다르게** 계산된 거야. 제일 중요한 규칙이고.\n"
+                "- **익절목표**: 손절폭의 1.5배. 여기 닿으면 일단 챙기는 가격. 단, 이건 미리 정한 규칙이지 '여기까지 오른다'는 예측이 절대 아니야.\n"
+                "- **전고점까지(%)**: 최근 고점까지 남은 거리. 이게 익절목표 폭보다 작으면 그 목표는 빡빡해 — 전고점이 천장 역할을 할 수 있거든.\n\n"
+                "**왜 ATR로?**: 전부 똑같이 -8% 긋는 건 종목 성격을 무시하는 거야. 하루 8%씩 출렁이는 종목에 -5% 손절을 걸면 평소 출렁임에도 바로 손절당하고, "
+                "얌전한 종목에 -15% 손절은 너무 헐렁해. 그래서 **그 종목이 평소 움직이는 폭에 맞춰** 손절·익절을 정하는 거야.\n\n"
+                "**핵심**: 이 숫자들은 '정답 종목 찍기'가 아니라, 사기 전에 손절선·익절선을 미리 정해두게 만드는 거야. "
+                "익절목표에 도달 못 하고 손절될 수도, 닿은 뒤 더 오를 수도 있어 — 둘 다 정상이야."
+            )
 
 # ============================================================
 #  분석기 화면
