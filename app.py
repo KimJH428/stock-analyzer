@@ -162,6 +162,40 @@ def atr_pct(high, low, close, window: int = 14):
     return float(atr) / cur * 100  # 현재가 대비 %
 
 
+# 종목 코드 → 그 종목이 속한 시장지수 티커
+def index_ticker_for(ticker: str):
+    t = ticker.upper().strip()
+    if t.endswith(".KS"):
+        return "^KS11", "코스피"
+    if t.endswith(".KQ"):
+        return "^KQ11", "코스닥"
+    if t.isdigit() and len(t) == 6:
+        return "^KS11", "코스피"   # 숫자 코드는 일단 코스피로
+    # 미국 종목: 나스닥 기준 (대부분 우리 스캐너가 나스닥/S&P라)
+    return "^IXIC", "나스닥"
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def relative_strength(ticker: str, period: str):
+    """상대강도: 이 종목이 같은 기간 시장지수보다 얼마나 더(덜) 올랐나.
+    종목 상승률 - 지수 상승률. 양수면 시장을 이기는 '주도주', 음수면 시장보다 약함.
+    지수 데이터를 못 받으면 (None, ...)로 우아하게 넘어간다."""
+    idx_tk, idx_name = index_ticker_for(ticker)
+    try:
+        idx = yf.download(idx_tk, period=period, progress=False)
+        if idx is None or idx.empty:
+            return None, idx_name, None, None
+        if isinstance(idx.columns, pd.MultiIndex):
+            idx.columns = idx.columns.get_level_values(0)
+        ic = idx["Close"].dropna()
+        if len(ic) < 2:
+            return None, idx_name, None, None
+        idx_ret = (float(ic.iloc[-1]) / float(ic.iloc[0]) - 1) * 100
+        return idx_ret, idx_name, idx_tk, ic
+    except Exception:
+        return None, idx_name, None, None
+
+
 def overheat_score(close: pd.Series):
     """과열·위험 점수 (0~100). 높을수록 '이미 많이 올라서 지금 새로 들어가면 위험'.
     예측이 아니라 현재 과열 정도를 요약하는 것. 낮다고 매수 신호가 아니다.
@@ -359,31 +393,15 @@ def compute_signals(c: pd.Series, v, high=None, low=None):
         elif oh >= 25: oh_mark = f"🟡 주의 {oh}"
         else: oh_mark = f"🟢 {oh}"
 
-    # 매매 가이드 (예측이 아니라 '미리 정하는 규칙')
-    # 손절폭 = 그 종목 ATR(평소 하루 변동폭)의 2배. 변동성 큰 종목은 멀리, 얌전하면 가까이.
-    cur = float(c.iloc[-1])
-    atrp = atr_pct(high, low, c)
-    if atrp is None:
-        stop_pct = 8.0  # ATR 계산 불가 시 기본값
-    else:
-        stop_pct = atrp * 2.0
-        stop_pct = max(4.0, min(20.0, stop_pct))  # 너무 극단적이지 않게 4~20%로 제한
-    target_pct = stop_pct * 1.5  # 익절 = 손절폭의 1.5배 (리스크:리워드 1:1.5)
-    stop = cur * (1 - stop_pct / 100)
-    target = cur * (1 + target_pct / 100)
-    # 전고점까지 남은 거리: 익절 목표가 현실적인지 점검
-    hi60 = float(c.iloc[-60:].max()) if len(c) >= 60 else float(c.max())
-    to_high = (hi60 / cur - 1) * 100 if cur > 0 else 0.0
-
+    # 매매 가이드는 분석기의 '매매 플랜' 탭으로 옮겼음.
+    # 스캐너는 다시 가볍게 — 신호와 과열도까지만 보여주고, 자세한 건 종목 클릭해서 보게.
     return {
-        "현재가": round(cur, 2),
+        "현재가": round(float(c.iloc[-1]), 2),
         "당일(%)": round(day_ret, 1),
+        "5일 수익률(%)": round(ret5, 1),
+        "거래량배수": round(vol_ratio, 1),
         "신호": " · ".join(signals),
         "과열도": oh_mark,
-        "변동성(ATR%)": round(atrp, 1) if atrp is not None else None,
-        "손절선": f"{stop:,.2f}  (-{stop_pct:.0f}%)",
-        "익절목표": f"{target:,.2f}  (+{target_pct:.0f}%)",
-        "전고점까지(%)": round(to_high, 1),
         "_oh": oh_val,  # 정렬 전용 (표시 전 제거됨)
     }
 
@@ -725,7 +743,7 @@ elif st.session_state.page == "scanner":
     st.caption("선택한 시장의 주요 종목 중 오늘 기준 신호가 잡힌 종목만 추려서 보여줘.")
 
     if scan_btn:
-        today_key = "sig-v5-" + datetime.today().strftime("%Y-%m-%d-%H")
+        today_key = "sig-v6-" + datetime.today().strftime("%Y-%m-%d-%H")
         # 캐시 갱신용 열쇠: 시간 단위 + 신호 버전.
         # 신호 계산 방식을 바꿀 때 "sig-v2"를 v3, v4로 올리면 옛날 캐시를 안 쓰게 됨.
         scan_error = None
@@ -814,18 +832,14 @@ elif st.session_state.page == "scanner":
             del st.session_state["scan_table"]  # 선택 초기화 (안 하면 돌아왔을 때 또 이동함)
             st.rerun()
         st.caption("종목 행을 클릭하면 분석기에서 바로 차트가 열려. 표 제목을 누르면 정렬돼.")
-        with st.expander("표 읽는 법 — 변동성 · 손절선 · 익절목표가 뭐야?"):
+        with st.expander("표 읽는 법 — 과열도가 뭐야?"):
             st.markdown(
-                "- **과열도 낮은 게 위로** 정렬돼 있어. 덜 과열된 = 새로 들어가기 그나마 나은 자리부터.\n"
-                "- **변동성(ATR%)**: 그 종목이 평소 하루에 평균 몇 % 출렁이는지. 이 값이 클수록 손절·익절 폭도 넓게 잡혀.\n"
-                "- **손절선**: 그 종목 변동성(ATR)의 2배만큼 아래. 여기까지 떨어지면 군말 없이 손절하는 가격. "
-                "변동성 큰 종목은 손절폭이 넓고(예: -16%), 얌전한 종목은 좁아(예: -5%) — **종목마다 다르게** 계산된 거야. 제일 중요한 규칙이고.\n"
-                "- **익절목표**: 손절폭의 1.5배. 여기 닿으면 일단 챙기는 가격. 단, 이건 미리 정한 규칙이지 '여기까지 오른다'는 예측이 절대 아니야.\n"
-                "- **전고점까지(%)**: 최근 고점까지 남은 거리. 이게 익절목표 폭보다 작으면 그 목표는 빡빡해 — 전고점이 천장 역할을 할 수 있거든.\n\n"
-                "**왜 ATR로?**: 전부 똑같이 -8% 긋는 건 종목 성격을 무시하는 거야. 하루 8%씩 출렁이는 종목에 -5% 손절을 걸면 평소 출렁임에도 바로 손절당하고, "
-                "얌전한 종목에 -15% 손절은 너무 헐렁해. 그래서 **그 종목이 평소 움직이는 폭에 맞춰** 손절·익절을 정하는 거야.\n\n"
-                "**핵심**: 이 숫자들은 '정답 종목 찍기'가 아니라, 사기 전에 손절선·익절선을 미리 정해두게 만드는 거야. "
-                "익절목표에 도달 못 하고 손절될 수도, 닿은 뒤 더 오를 수도 있어 — 둘 다 정상이야."
+                "- **과열도 낮은 게 위로** 정렬돼 있어. 덜 과열된 = 새로 들어가기 그나마 나은 자리부터. "
+                "🟢 안전 → 🟡 주의 → 🟠 과열 → 🔴 매우과열 순이야.\n"
+                "- **신호**: 🔥 거래량 급등+상승 / 📊 거래량만 급증 / ⭐ 최근 골든크로스.\n\n"
+                "**손절선·익절목표·상대강도·분할 진입 같은 자세한 매매 플랜은** 종목 행을 클릭해서 "
+                "분석기로 넘어간 다음 **🎯 매매 플랜 탭**에서 볼 수 있어. 거기서 그 종목 변동성에 맞춘 "
+                "손절·익절이랑, 시장을 이기는 종목인지(상대강도)까지 다 나와."
             )
 
 # ============================================================
@@ -1081,7 +1095,8 @@ else:
     st.write("")
 
     # ---------- 탭: 차트 / 매매 내역 / 읽는 법 ----------
-    tab_chart, tab_trades, tab_guide = st.tabs(["🕯️ 차트", "📋 매매 내역", "📖 읽는 법"])
+    tab_chart, tab_plan, tab_trades, tab_guide = st.tabs(
+        ["🕯️ 차트", "🎯 매매 플랜", "📋 매매 내역", "📖 읽는 법"])
 
     with tab_chart:
         st.markdown(f"#### {q['ticker']} · {PERIOD_LABEL[q['period']]}")
@@ -1207,6 +1222,102 @@ else:
                         config={"scrollZoom": True, "displaylogo": False})
         st.caption("🖱️ 휠: 확대/축소 · 드래그: 이동 · 더블클릭: 원위치")
         st.toast("분석 완료!", icon="✅")
+
+    with tab_plan:
+        st.markdown(f"#### 🎯 {q['ticker']} 매매 플랜")
+        st.caption("실제로 이 종목을 사고판다면? — **예측이 아니라 미리 정해두는 규칙**이야.")
+
+        cur_price = float(close.iloc[-1])
+
+        # ----- 1. 손절·익절 (ATR 기반) -----
+        hi = data["High"] if "High" in data.columns else None
+        lo = data["Low"] if "Low" in data.columns else None
+        atrp = atr_pct(hi, lo, close)
+        if atrp is None:
+            stop_pct = 8.0
+        else:
+            stop_pct = max(4.0, min(20.0, atrp * 2.0))
+        target_pct = stop_pct * 1.5
+        stop_price = cur_price * (1 - stop_pct / 100)
+        target_price = cur_price * (1 + target_pct / 100)
+
+        st.markdown("##### 1️⃣ 손절선 · 익절목표")
+        p1, p2, p3 = st.columns(3)
+        p1.markdown(f"""<div class="stat-card"><div class="stat-label">현재가</div>
+<div class="stat-value">{cur_price:,.2f}</div></div>""", unsafe_allow_html=True)
+        p2.markdown(f"""<div class="stat-card"><div class="stat-label">손절선 (-{stop_pct:.0f}%)</div>
+<div class="stat-value stat-down">{stop_price:,.2f}</div></div>""", unsafe_allow_html=True)
+        p3.markdown(f"""<div class="stat-card"><div class="stat-label">익절목표 (+{target_pct:.0f}%)</div>
+<div class="stat-value stat-up">{target_price:,.2f}</div></div>""", unsafe_allow_html=True)
+        if atrp is not None:
+            st.caption(f"이 종목은 평소 하루 약 **{atrp:.1f}%** 출렁여(ATR). 손절폭은 그 2배로 잡았어 — "
+                       "변동성에 맞춘 거라 얌전한 종목보다 넓거나 좁을 수 있어.")
+        st.write("")
+
+        # ----- 2. 상대강도 -----
+        st.markdown("##### 2️⃣ 상대강도 — 시장을 이기는 종목인가?")
+        stock_ret = (cur_price / float(close.iloc[0]) - 1) * 100
+        idx_ret, idx_name, idx_tk, idx_close = relative_strength(q["ticker"], q["period"])
+
+        if idx_ret is None:
+            st.info(f"{idx_name} 지수 데이터를 지금 못 받아와서 상대강도는 계산 못 했어. "
+                    "(데이터 서버 사정 — 잠시 후 다시 시도하면 될 수도 있어)")
+        else:
+            rs = stock_ret - idx_ret
+            r1, r2, r3 = st.columns(3)
+            r1.markdown(f"""<div class="stat-card"><div class="stat-label">이 종목 ({PERIOD_LABEL[q['period']]})</div>
+<div class="stat-value {ret_class(stock_ret)}">{stock_ret:+.1f}%</div></div>""", unsafe_allow_html=True)
+            r2.markdown(f"""<div class="stat-card"><div class="stat-label">{idx_name} 지수</div>
+<div class="stat-value {ret_class(idx_ret)}">{idx_ret:+.1f}%</div></div>""", unsafe_allow_html=True)
+            rs_cls = "stat-up" if rs > 0 else ("stat-down" if rs < 0 else "")
+            r3.markdown(f"""<div class="stat-card"><div class="stat-label">상대강도 (차이)</div>
+<div class="stat-value {rs_cls}">{rs:+.1f}%p</div></div>""", unsafe_allow_html=True)
+
+            if rs > 5:
+                st.success(f"📈 **시장보다 {rs:.1f}%p 더 강해.** 시장({idx_name})을 이기고 있는 '주도주' 쪽이야. "
+                           "고수들이 '오르는 종목 중에서도 시장보다 잘 가는 것만 산다'고 할 때 보는 게 이거야.")
+            elif rs < -5:
+                st.warning(f"📉 **시장보다 {abs(rs):.1f}%p 약해.** 같은 기간 시장은 더 잘 갔는데 이 종목은 못 따라갔어. "
+                           "오르더라도 '약한 상승'이라 주의. 시장이 꺾이면 더 빨리 빠질 수 있어.")
+            else:
+                st.info(f"시장({idx_name})이랑 비슷하게 움직였어. 특별히 강하지도 약하지도 않은 상태.")
+            st.caption("상대강도 = 이 종목 상승률 − 시장지수 상승률. 같은 +10%라도 시장이 +3%일 때와 +15%일 때는 "
+                       "의미가 완전히 달라 — 그걸 보정해서 '진짜 강한지'를 보는 거야.")
+        st.write("")
+
+        # ----- 3. 분할 진입 -----
+        st.markdown("##### 3️⃣ 분할 진입 — 한 방에 사지 마라")
+        budget = st.number_input("이 종목에 넣을 총 금액 (원하는 단위로)", value=1000000,
+                                 min_value=0, step=100000, key="plan_budget")
+        st.caption("한 번에 다 사면 '오늘 가격' 하나에 운명이 걸려. 3번 나눠 사면 평균 단가가 안정돼 "
+                   "(너 SPCX 단타 때처럼 타이밍 하나에 거는 걸 막아줘).")
+        if budget > 0:
+            # 3분할: 현재가 / -손절폭의 1/3 / -손절폭의 2/3 지점에서 매수
+            levels = [
+                ("1차 (지금)", cur_price, budget * 0.4),
+                (f"2차 (-{stop_pct/3:.1f}%)", cur_price * (1 - stop_pct/300), budget * 0.3),
+                (f"3차 (-{stop_pct*2/3:.1f}%)", cur_price * (1 - stop_pct*2/300), budget * 0.3),
+            ]
+            rows = []
+            tot_qty = 0
+            for name, price, amt in levels:
+                qty = amt / price if price > 0 else 0
+                tot_qty += qty
+                rows.append({
+                    "단계": name,
+                    "매수가": round(price, 2),
+                    "투입금액": f"{amt:,.0f}",
+                    "수량(주)": round(qty, 2),
+                })
+            avg = (budget / tot_qty) if tot_qty > 0 else cur_price
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.caption(f"3단계 다 채우면 평균 단가 약 **{avg:,.2f}** (지금 한 방에 사는 것보다 낮아). "
+                       "물론 가격이 안 떨어지고 바로 오르면 1차만 체결되고 끝 — 그것도 정상이야. "
+                       "분할은 '더 싸게 사려는 욕심'이 아니라 '타이밍 실수를 줄이려는 보험'이야.")
+        st.write("")
+        st.caption("⚠️ 이 플랜 전체는 매수 추천이 아니야. 손절·익절·분할은 '사기로 이미 정했다면 이렇게 관리해라'는 "
+                   "규칙이고, 애초에 살지 말지는 네가 판단하는 거야. 특히 위 **과열·위험 점수**가 높으면 "
+                   "이 플랜을 짜기 전에 '지금 진입 자체가 맞나'부터 다시 생각해봐.")
 
     with tab_trades:
         if trades:
