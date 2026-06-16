@@ -17,6 +17,13 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# 음성 입력 (선택적): 패키지가 없거나 설치 실패해도 사이트는 글자로 정상 작동
+try:
+    from streamlit_mic_recorder import speech_to_text
+    MIC_AVAILABLE = True
+except Exception:
+    MIC_AVAILABLE = False
+
 warnings.filterwarnings("ignore")
 
 # ---------- 색상표 (다크 + 네온 그린 터미널 테마) ----------
@@ -1085,6 +1092,20 @@ elif st.session_state.page == "ai":
     )
     st.write("")
 
+    # ----- 음성 입력 (마이크) -----
+    voice_text = None
+    if MIC_AVAILABLE:
+        mc1, mc2 = st.columns([1, 3])
+        with mc1:
+            voice_text = speech_to_text(language="ko", start_prompt="🎤 말하기",
+                                        stop_prompt="⏹️ 멈춤", just_once=True,
+                                        use_container_width=True, key="ai_stt")
+        with mc2:
+            st.caption("마이크 누르고 말해봐 — 예: \"삼성전자 지금 들어가도 돼?\" "
+                       "(크롬에서 제일 잘 돼. 종목명은 코드로 바꿔서 넣어줘)")
+    else:
+        st.caption("🎤 음성 입력은 지금 사용할 수 없어 (서버에 음성 도구 미설치). 글자로 물어봐도 똑같이 작동해.")
+
     # ----- 비서 입력 영역 -----
     ac1, ac2 = st.columns([1, 2])
     with ac1:
@@ -1092,7 +1113,8 @@ elif st.session_state.page == "ai":
                                   placeholder="예: 005930.KS, TSLA",
                                   key="ai_ticker_input")
     with ac2:
-        ai_q = st.text_input("질문", placeholder="예: 이거 지금 들어가도 돼? / 위험해? / 얼마나 강해?",
+        ai_q = st.text_input("질문", value=voice_text if voice_text else "",
+                             placeholder="예: 이거 지금 들어가도 돼? / 위험해? / 얼마나 강해?",
                              key="ai_question_input")
 
     # 빠른 질문 버튼
@@ -1106,9 +1128,29 @@ elif st.session_state.page == "ai":
 
     ask_now = st.button("🤖 비서에게 묻기", type="primary", use_container_width=True)
 
+    # 음성으로 종목명을 말했을 때 코드로 바꿔주는 간단 사전 (주요 종목)
+    NAME_TO_CODE = {
+        "삼성전자": "005930.KS", "에스케이하이닉스": "000660.KS", "sk하이닉스": "000660.KS",
+        "하이닉스": "000660.KS", "엘지전자": "066570.KS", "lg전자": "066570.KS",
+        "네이버": "035420.KS", "카카오": "035720.KS", "현대차": "005380.KS",
+        "기아": "000270.KS", "포스코": "005490.KS", "셀트리온": "068270.KS",
+        "테슬라": "TSLA", "엔비디아": "NVDA", "애플": "AAPL", "구글": "GOOGL",
+        "마이크로소프트": "MSFT", "아마존": "AMZN", "스페이스엑스": "SPCX", "스페이스x": "SPCX",
+    }
+
+    # 음성 텍스트에서 종목명 추출 → 코드 자동 입력
+    if voice_text:
+        vlow = voice_text.replace(" ", "").lower()
+        for name, code in NAME_TO_CODE.items():
+            if name in vlow:
+                st.session_state.ai_ticker = code
+                ai_ticker = code
+                break
+
     # 질문 처리
-    question = quick if quick else (ai_q if ask_now else None)
-    if (quick or ask_now) and ai_ticker.strip():
+    question = quick if quick else (ai_q if (ask_now or voice_text) else None)
+    trigger = quick or ask_now or bool(voice_text)
+    if trigger and ai_ticker.strip():
         st.session_state.ai_ticker = ai_ticker.strip()
         with st.spinner("코어가 분석 중..."):
             info = assistant_collect(ai_ticker.strip())
@@ -1156,8 +1198,9 @@ elif st.session_state.page == "ai":
             rsi_txt = f"{info['rsi']:.0f}" if info['rsi'] is not None else "-"
             mcols[3].markdown(f"""<div class="stat-card"><div class="stat-label">RSI(6)</div>
 <div class="stat-value">{rsi_txt}</div></div>""", unsafe_allow_html=True)
-    elif (quick or ask_now) and not ai_ticker.strip():
-        st.warning("먼저 종목 코드를 넣어줘. (예: 005930.KS, TSLA)")
+    elif trigger and not ai_ticker.strip():
+        st.warning("먼저 종목 코드를 넣어줘. (예: 005930.KS, TSLA) "
+                   "음성으로 종목명을 말하면 자동으로 코드를 찾아주는데, 못 찾으면 직접 입력해줘.")
     else:
         st.info("종목 코드를 넣고 질문하거나 빠른 질문 버튼을 눌러봐. "
                 "코어가 그 종목의 과열도·상대강도·RSI를 보고 답해줄게.")
