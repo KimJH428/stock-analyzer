@@ -1079,10 +1079,42 @@ elif st.session_state.page == "ai":
 .ai-dots span:nth-child(18){left:180px;top:45px;opacity:.5}
 .ai-dots span:nth-child(19){left:100px;top:265px;opacity:.6}
 .ai-dots span:nth-child(20){left:245px;top:255px;opacity:.5}
+/* 방사형 빛줄기 (코어에서 뻗어나가는 광선) */
+.ai-rays { position:absolute; width:340px; height:340px; animation: spinA 40s linear infinite; }
+.ai-rays span {
+    position:absolute; left:50%; top:50%; width:2px; height:150px;
+    background: linear-gradient(to top, rgba(0,255,136,.5), transparent);
+    transform-origin: bottom center; opacity:.4;
+}
+.ai-rays span:nth-child(1){ transform: translate(-50%,-100%) rotate(0deg); }
+.ai-rays span:nth-child(2){ transform: translate(-50%,-100%) rotate(30deg); }
+.ai-rays span:nth-child(3){ transform: translate(-50%,-100%) rotate(60deg); }
+.ai-rays span:nth-child(4){ transform: translate(-50%,-100%) rotate(90deg); }
+.ai-rays span:nth-child(5){ transform: translate(-50%,-100%) rotate(120deg); }
+.ai-rays span:nth-child(6){ transform: translate(-50%,-100%) rotate(150deg); }
+.ai-rays span:nth-child(7){ transform: translate(-50%,-100%) rotate(180deg); }
+.ai-rays span:nth-child(8){ transform: translate(-50%,-100%) rotate(210deg); }
+.ai-rays span:nth-child(9){ transform: translate(-50%,-100%) rotate(240deg); }
+.ai-rays span:nth-child(10){ transform: translate(-50%,-100%) rotate(270deg); }
+.ai-rays span:nth-child(11){ transform: translate(-50%,-100%) rotate(300deg); }
+.ai-rays span:nth-child(12){ transform: translate(-50%,-100%) rotate(330deg); }
+/* SVG 구 그물망 (위·경선) */
+.ai-mesh { position:absolute; width:300px; height:300px; animation: spinB 30s linear infinite; opacity:.5; }
+.ai-mesh ellipse, .ai-mesh circle { fill:none; stroke:rgba(0,255,136,.4); stroke-width:0.7; }
 </style>
 <div class="ai-core-wrap">
   <div class="ai-core">
     <div class="ai-halo"></div>
+    <div class="ai-rays"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <svg class="ai-mesh" viewBox="0 0 300 300">
+      <circle cx="150" cy="150" r="110"/>
+      <ellipse cx="150" cy="150" rx="110" ry="38"/>
+      <ellipse cx="150" cy="150" rx="110" ry="70"/>
+      <ellipse cx="150" cy="150" rx="110" ry="100"/>
+      <ellipse cx="150" cy="150" rx="38" ry="110"/>
+      <ellipse cx="150" cy="150" rx="70" ry="110"/>
+      <ellipse cx="150" cy="150" rx="100" ry="110"/>
+    </svg>
     <div class="ai-ring ai-r3"></div>
     <div class="ai-ring ai-r2"></div>
     <div class="ai-eq"></div>
