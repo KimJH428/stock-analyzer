@@ -251,6 +251,75 @@ def overheat_label(score):
     return f"{score} 안전권", ""
 
 
+# ---------- 공포·탐욕 온도계 (시장 전체) ----------
+@st.cache_data(ttl=1800, show_spinner=False)
+def market_breadth(market_key: str, n: int, today_key: str):
+    """상위 n개 종목을 훑어서 시장 전체 분위기(공포~탐욕)를 0~100으로.
+    재료: 상승종목비율 + 20일선위비율 + 신고가근접비율. 셋의 평균.
+    market_key: 'KR' / 'NASDAQ' / 'S&P500'."""
+    if market_key == "KR":
+        listing = load_krx_top(n)
+    else:
+        listing = load_us(market_key, n)
+    if listing is None or len(listing) == 0:
+        return None, {}, 0
+
+    up = above = nearhigh = total = 0
+    for _, row in listing.iterrows():
+        try:
+            if market_key == "KR":
+                import FinanceDataReader as fdr
+                df = fdr.DataReader(row["Code"], datetime.today() - timedelta(days=120))
+            else:
+                df = yf.download(row["Code"], period="4mo", progress=False)
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+        except Exception:
+            continue
+        if df is None or len(df) < 25:
+            continue
+        c = df["Close"].astype(float).dropna()
+        if len(c) < 25:
+            continue
+        total += 1
+        # 당일 등락
+        if c.iloc[-1] > c.iloc[-2]:
+            up += 1
+        # 20일선 위
+        if c.iloc[-1] > c.rolling(20).mean().iloc[-1]:
+            above += 1
+        # 신고가(60일) 근접
+        hi = c.iloc[-60:].max() if len(c) >= 60 else c.max()
+        if hi > 0 and c.iloc[-1] / hi >= 0.97:
+            nearhigh += 1
+
+    if total == 0:
+        return None, {}, 0
+
+    parts = {
+        "상승 종목 비율": round(up / total * 100, 1),
+        "20일선 위 비율": round(above / total * 100, 1),
+        "신고가 근접 비율": round(nearhigh / total * 100, 1),
+    }
+    score = round(sum(parts.values()) / 3)
+    return score, parts, total
+
+
+def fear_greed_label(score):
+    """공포·탐욕 점수 → 단계/색/이모지."""
+    if score is None:
+        return "-", "", "⚪"
+    if score >= 75:
+        return "극단적 탐욕", "stat-up", "🔥"
+    if score >= 55:
+        return "탐욕", "stat-up", "😎"
+    if score >= 45:
+        return "중립", "", "😐"
+    if score >= 25:
+        return "공포", "stat-down", "😨"
+    return "극단적 공포", "stat-down", "🥶"
+
+
 # ---------- 데이터 가져오기 (3단 예비 체계) ----------
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_ohlc(ticker: str, period: str):
@@ -676,7 +745,7 @@ if st.session_state.page == "home":
     )
     st.write("")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.button("📊 분석기", type="primary", use_container_width=True,
                   on_click=go_page, args=("app",))
@@ -684,6 +753,9 @@ if st.session_state.page == "home":
         st.button("🚨 시장 스캐너", use_container_width=True,
                   on_click=go_page, args=("scanner",))
     with c3:
+        st.button("🌡️ 공포·탐욕", use_container_width=True,
+                  on_click=go_page, args=("feargreed",))
+    with c4:
         st.button("📖 사용법", use_container_width=True,
                   on_click=go_page, args=("guide",))
 
@@ -717,6 +789,101 @@ elif st.session_state.page == "guide":
    전략이 항상 이기는 게 아니라는 걸 직접 확인하는 게 이 도구의 진짜 목적이야.
 7. 모든 신호는 **참고용**이야. 수수료·세금·슬리피지도 계산에 없어.
 """, unsafe_allow_html=True)
+
+# ============================================================
+#  공포·탐욕 온도계 화면
+# ============================================================
+elif st.session_state.page == "feargreed":
+    st.markdown(AMBIENT_BG, unsafe_allow_html=True)
+
+    with st.sidebar:
+        st.button("← 홈으로", on_click=go_page, args=("home",), use_container_width=True)
+        st.header("공포·탐욕 설정")
+        fg_market_label = st.radio("시장", ["🇰🇷 국내 (코스피+코스닥)", "🇺🇸 미국 (S&P 500)", "🇺🇸 미국 (나스닥)"])
+        if fg_market_label.startswith("🇰🇷"):
+            fg_market = "KR"
+        elif "나스닥" in fg_market_label:
+            fg_market = "NASDAQ"
+        else:
+            fg_market = "S&P500"
+        fg_n = st.slider("표본 종목 수 (많을수록 정확, 느림)", 30, 200, 80, step=10)
+        fg_btn = st.button("🌡️ 온도 측정", type="primary", use_container_width=True)
+        st.info("시장 '전체'가 지금 과열(탐욕)인지 얼어붙었는지(공포)를 재는 거야. "
+                "개별 종목이 아니라 **숲 전체**를 보는 거지.")
+
+    st.title("🌡️ 공포 · 탐욕 온도계")
+    st.caption("시장 전체 분위기를 0(극단적 공포)~100(극단적 탐욕)으로. "
+               "고수들은 '남들이 탐욕일 때 조심하고, 공포일 때 기회를 본다'고 하지.")
+
+    if "fg_result" not in st.session_state:
+        st.session_state.fg_result = None
+
+    if fg_btn:
+        today_key = "fg-v1-" + datetime.today().strftime("%Y-%m-%d-%H")
+        with st.spinner(f"{fg_n}개 종목을 훑어서 시장 온도 재는 중... (좀 걸려)"):
+            try:
+                score, parts, total = market_breadth(fg_market, fg_n, today_key)
+            except Exception as e:
+                score, parts, total = None, {}, 0
+                st.session_state.fg_error = f"{type(e).__name__}: {e}"
+        st.session_state.fg_result = (score, parts, total, fg_market_label)
+
+    if st.session_state.fg_result is None:
+        st.write("👈 왼쪽에서 시장을 고르고 **온도 측정**을 눌러줘.")
+    else:
+        score, parts, total, mkt_label = st.session_state.fg_result
+        if score is None:
+            st.error("데이터를 못 가져와서 측정 실패. 잠시 후 다시 시도해줘.")
+            if st.session_state.get("fg_error"):
+                with st.expander("자세한 오류 (디버그용)"):
+                    st.code(st.session_state.fg_error)
+        else:
+            label, cls, emoji = fear_greed_label(score)
+            # 큰 온도계 게이지 (0~100 막대)
+            bar_color = "#F23645" if score >= 55 else ("#3179F5" if score < 45 else "#9598A1")
+            st.markdown(f"""
+<div style="text-align:center; margin: 10px 0 6px;">
+  <div style="font-size:64px; line-height:1;">{emoji}</div>
+  <div style="font-size:52px; font-weight:800; color:{bar_color};">{score}</div>
+  <div style="font-size:20px; color:{TEXT}; letter-spacing:2px;">{label}</div>
+</div>
+<div style="max-width:560px; margin:14px auto; height:16px; border-radius:8px;
+     background:linear-gradient(90deg,#3179F5 0%,#9598A1 50%,#F23645 100%); position:relative;">
+  <div style="position:absolute; left:calc({score}% - 9px); top:-5px; width:4px; height:26px;
+       background:#fff; border-radius:2px; box-shadow:0 0 8px rgba(255,255,255,.8);"></div>
+</div>
+<div style="max-width:560px; margin:0 auto; display:flex; justify-content:space-between;
+     font-size:11px; color:{SUBTLE};"><span>공포 0</span><span>중립 50</span><span>탐욕 100</span></div>
+""", unsafe_allow_html=True)
+            st.write("")
+            st.caption(f"{mkt_label} · 표본 {total}개 종목 기준")
+
+            # 재료 분해
+            st.markdown("##### 온도를 구성하는 재료")
+            cols = st.columns(len(parts))
+            for col, (k, vpct) in zip(cols, parts.items()):
+                col.markdown(f"""<div class="stat-card"><div class="stat-label">{k}</div>
+<div class="stat-value">{vpct:.0f}%</div></div>""", unsafe_allow_html=True)
+
+            st.write("")
+            # 해석
+            if score >= 75:
+                st.warning("🔥 **극단적 탐욕.** 시장이 과열됐어. 대부분 종목이 오르고 신고가가 쏟아지는 상태. "
+                           "이럴 때 새로 뛰어드는 게 제일 위험해 — 고점에서 물릴 확률이 높거든. 고수들이 조심하는 구간.")
+            elif score >= 55:
+                st.info("😎 **탐욕 구간.** 시장 분위기가 좋아. 근데 좋을 때일수록 'FOMO로 막 사는 것'을 경계해야 해.")
+            elif score >= 45:
+                st.info("😐 **중립.** 시장이 한 방향으로 쏠려있지 않아. 종목별로 옥석이 갈리는 구간.")
+            elif score >= 25:
+                st.info("😨 **공포 구간.** 시장이 위축돼 있어. 무섭지만, 좋은 종목이 싸지는 구간이기도 해 — 고수들이 기회를 보는 때.")
+            else:
+                st.success("🥶 **극단적 공포.** 시장이 얼어붙었어. 대부분 떨어지고 다들 패닉인 상태. "
+                           "역사적으로 이런 극단적 공포 구간이 '바닥'인 경우가 많았어(항상은 아니야). "
+                           "남들이 다 파는 이때가 역설적으로 기회일 수 있어 — 단, 떨어지는 칼을 잡는 위험도 있으니 신중히.")
+
+            st.caption("⚠️ 이건 '지금 사라/팔라'가 아니야. 시장 전체 온도를 보여주는 것뿐이고, "
+                       "극단적 공포가 더 깊어질 수도, 극단적 탐욕이 더 오를 수도 있어. "
+                       "개별 종목 판단은 분석기에서 따로 해.")
 
 # ============================================================
 #  시장 스캐너 화면
