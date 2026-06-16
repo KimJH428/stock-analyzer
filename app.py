@@ -313,7 +313,18 @@ def fear_greed_label(score):
 # ============================================================
 def assistant_collect(ticker: str, period: str = "6mo"):
     """종목의 지표들을 한 번에 모은다. 비서가 이걸 보고 답을 만든다."""
+    import time
     data, source = fetch_ohlc(ticker, period)
+    # 야후가 일시적으로 막으면 잠깐 쉬고 한 번 더 (미국 종목에서 자주 발생)
+    bad0 = (data is None or len(data) == 0 or "Close" not in getattr(data, "columns", []))
+    if bad0:
+        try:
+            fetch_ohlc.clear()  # 캐시 비우고 재시도
+        except Exception:
+            pass
+        time.sleep(1.2)
+        data, source = fetch_ohlc(ticker, period)
+
     bad = (data is None or len(data) == 0 or "Close" not in getattr(data, "columns", []))
     if not bad:
         close = data["Close"].squeeze()
@@ -324,7 +335,7 @@ def assistant_collect(ticker: str, period: str = "6mo"):
 
     close = data["Close"].squeeze().dropna()
     cur = float(close.iloc[-1])
-    info = {"ticker": ticker.upper(), "cur": cur}
+    info = {"ticker": ticker.upper(), "cur": cur, "_close": close}
 
     # 과열 점수
     oh, oh_parts = overheat_score(close)
@@ -1155,8 +1166,10 @@ elif st.session_state.page == "ai":
         with st.spinner("코어가 분석 중..."):
             info = assistant_collect(ai_ticker.strip())
         if info is None:
-            st.error(f"'{ai_ticker.strip()}' 데이터를 못 가져왔어. 종목 코드를 확인해줘. "
-                     "(한국 주식은 숫자+.KS/.KQ, 미국은 영문 티커)")
+            st.error(f"'{ai_ticker.strip()}' 데이터를 지금 못 가져왔어. "
+                     "종목 코드가 맞다면(특히 유명한 미국 종목이면) 데이터 서버가 일시적으로 막힌 거라, "
+                     "**10~20초 뒤에 다시 눌러봐** — 보통 그러면 돼. "
+                     "코드 자체가 의심되면 한국 주식은 숫자+.KS/.KQ, 미국은 영문 티커야.")
         else:
             answer = assistant_answer(info, question or "지금 어때?")
             # 비서 답변 (말풍선 느낌)
@@ -1168,10 +1181,9 @@ elif st.session_state.page == "ai":
 </div>
 """, unsafe_allow_html=True)
 
-            # 미니 차트 (종목 가격 + 20일선)
-            mdata, _ = fetch_ohlc(ai_ticker.strip(), "6mo")
-            if mdata is not None and "Close" in mdata.columns:
-                mc = mdata["Close"].squeeze()
+            # 미니 차트 (collect가 받아온 데이터 재활용 — 중복 다운로드 방지)
+            mc = info.get("_close")
+            if mc is not None and len(mc) > 1:
                 mini = go.Figure()
                 mini.add_trace(go.Scatter(x=mc.index, y=mc, name="종가",
                                           line=dict(color=GREEN, width=1.8)))
