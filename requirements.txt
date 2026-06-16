@@ -6,3 +6,4 @@ finance-datareader
 plotly
 matplotlib
 pandas
+streamlit-mic-recorder
