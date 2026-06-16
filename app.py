@@ -709,12 +709,131 @@ if st.session_state.page == "home":
 </div>
 """, unsafe_allow_html=True)
 
-    # ---- 가운데 정렬 네온 제목 + 기능 칩 ----
+    # ---- 위쪽: 작은 타이틀 ----
     st.markdown(
         '<div class="hero-wrap">'
         '<p class="neon-title">STOCK&nbsp;ANALYZER</p>'
         '<p class="hero-sub2">이동평균 · RSI · 볼린저밴드 · 백테스트 · 시장 스캐너 — '
         'made by 제현 (with Claude)</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- 중앙: 초록 네온 코어 (AI 비서 진입) ----
+    st.markdown("""
+<style>
+.core-wrap {
+    display: flex; flex-direction: column; align-items: center;
+    margin: 6px 0 2px;
+}
+.core {
+    position: relative; width: 280px; height: 280px;
+    display: flex; align-items: center; justify-content: center;
+}
+/* 가운데 빛나는 핵 */
+.core-nucleus {
+    position: absolute; width: 54px; height: 54px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #d6ffe9, #00ff88 45%, #00b865 75%);
+    box-shadow: 0 0 30px #00ff88, 0 0 70px rgba(0,255,136,.7), 0 0 120px rgba(0,255,136,.4);
+    animation: nucleusPulse 2.6s ease-in-out infinite;
+    z-index: 3;
+}
+@keyframes nucleusPulse {
+    0%,100% { transform: scale(1);    box-shadow: 0 0 30px #00ff88, 0 0 70px rgba(0,255,136,.7), 0 0 120px rgba(0,255,136,.4); }
+    50%     { transform: scale(1.18); box-shadow: 0 0 40px #00ff88, 0 0 95px rgba(0,255,136,.85),0 0 160px rgba(0,255,136,.55); }
+}
+/* 회전하는 네온 링들 (비스듬히) */
+.core-ring {
+    position: absolute; border-radius: 50%;
+    border: 1.5px solid rgba(0,255,136,.55);
+    box-shadow: 0 0 12px rgba(0,255,136,.4), inset 0 0 12px rgba(0,255,136,.25);
+}
+.ring-1 { width: 130px; height: 130px; animation: spinA 7s linear infinite;  border-style: dashed; }
+.ring-2 { width: 190px; height: 190px; animation: spinB 11s linear infinite reverse; border-top-color: rgba(0,255,136,.9); border-right-color: transparent; }
+.ring-3 { width: 250px; height: 250px; animation: spinA 16s linear infinite; border-left-color: rgba(124,255,196,.9); border-bottom-color: transparent; }
+/* 3D 느낌: 비스듬한 타원 링 (자전하는 적도처럼) */
+.ring-eq {
+    position: absolute; width: 240px; height: 92px; border-radius: 50%;
+    border: 1.5px solid rgba(0,255,136,.45);
+    box-shadow: 0 0 14px rgba(0,255,136,.3);
+    animation: spinFlat 9s linear infinite;
+}
+.ring-eq2 {
+    position: absolute; width: 92px; height: 240px; border-radius: 50%;
+    border: 1.5px solid rgba(0,255,136,.35);
+    box-shadow: 0 0 14px rgba(0,255,136,.25);
+    animation: spinFlat 13s linear infinite reverse;
+}
+@keyframes spinA { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes spinB { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes spinFlat { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+/* 구 표면 점들 (별가루) */
+.core-dots { position: absolute; width: 230px; height: 230px; animation: spinA 24s linear infinite; }
+.core-dots span {
+    position: absolute; width: 2.5px; height: 2.5px; border-radius: 50%;
+    background: #7cffc4; box-shadow: 0 0 4px #00ff88;
+}
+/* 바깥 후광 */
+.core-halo {
+    position: absolute; width: 300px; height: 300px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(0,255,136,.10), transparent 65%);
+    animation: haloBreath 4s ease-in-out infinite;
+}
+@keyframes haloBreath { 0%,100% { opacity:.6; transform:scale(1);} 50%{opacity:1; transform:scale(1.08);} }
+/* 클릭 유도 라벨 */
+.core-label {
+    margin-top: 6px; color: #7cffc4; font-size: 14px; letter-spacing: 3px;
+    text-shadow: 0 0 8px rgba(0,255,136,.6); animation: haloBreath 3s ease-in-out infinite;
+}
+/* hover 시 살짝 커지고 빨라지는 느낌 */
+.core:hover .core-nucleus { animation-duration: 1.1s; }
+.core:hover .ring-1 { animation-duration: 2.5s; }
+.core:hover .ring-2 { animation-duration: 4s; }
+</style>
+<div class="core-wrap">
+  <div class="core">
+    <div class="core-halo"></div>
+    <div class="core-ring ring-3"></div>
+    <div class="core-ring ring-2"></div>
+    <div class="ring-eq"></div>
+    <div class="ring-eq2"></div>
+    <div class="core-ring ring-1"></div>
+    <div class="core-dots" id="coreDots"></div>
+    <div class="core-nucleus"></div>
+  </div>
+  <div class="core-label">◆ CORE</div>
+</div>
+<script>
+// 구 표면처럼 점들을 원형으로 흩뿌리기 (한 번만)
+(function(){
+  var box = document.getElementById('coreDots');
+  if (!box || box.dataset.done) return;
+  box.dataset.done = "1";
+  var R = 115, cx = 115, cy = 115, N = 54;
+  for (var i=0;i<N;i++){
+    var a = Math.random()*Math.PI*2;
+    var r = R*Math.sqrt(Math.random());
+    var s = document.createElement('span');
+    s.style.left = (cx + r*Math.cos(a)) + 'px';
+    s.style.top  = (cy + r*Math.sin(a)) + 'px';
+    s.style.opacity = (0.3 + Math.random()*0.7).toFixed(2);
+    box.appendChild(s);
+  }
+})();
+</script>
+""", unsafe_allow_html=True)
+
+    # 코어를 누르는 버튼 (구 바로 아래, 가운데 좁게)
+    bcol1, bcol2, bcol3 = st.columns([1, 1.4, 1])
+    with bcol2:
+        st.button("🤖 AI 비서 깨우기", type="primary", use_container_width=True,
+                  on_click=go_page, args=("ai",))
+
+    st.write("")
+
+    # ---- 아래: 기능 칩 ----
+    st.markdown(
+        '<div class="hero-wrap">'
         '<div class="chip-row2">'
         '<span class="chip2">🕯️ 인터랙티브 캔들차트</span>'
         '<span class="chip2">⭐ 골든/데드크로스</span>'
@@ -728,7 +847,7 @@ if st.session_state.page == "home":
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.button("📊 분석기", type="primary", use_container_width=True,
+        st.button("📊 분석기", use_container_width=True,
                   on_click=go_page, args=("app",))
     with c2:
         st.button("🚨 시장 스캐너", use_container_width=True,
@@ -745,6 +864,89 @@ if st.session_state.page == "home":
         '⚠️ 이 도구는 과거 신호를 보여주는 거지 미래를 예측하거나 매수/매도를 추천하는 게 아니야.</p>',
         unsafe_allow_html=True,
     )
+
+# ============================================================
+#  AI 비서 화면
+# ============================================================
+elif st.session_state.page == "ai":
+    st.markdown(AMBIENT_BG, unsafe_allow_html=True)
+    st.button("← 홈으로", on_click=go_page, args=("home",))
+
+    # 큰 코어 (AI 비서의 얼굴)
+    st.markdown("""
+<style>
+.ai-core-wrap { display:flex; flex-direction:column; align-items:center; margin: 10px 0 4px; }
+.ai-core { position: relative; width: 340px; height: 340px; display:flex; align-items:center; justify-content:center; }
+.ai-nucleus {
+    position:absolute; width:70px; height:70px; border-radius:50%;
+    background: radial-gradient(circle at 40% 35%, #d6ffe9, #00ff88 45%, #00b865 75%);
+    box-shadow: 0 0 36px #00ff88, 0 0 90px rgba(0,255,136,.7), 0 0 150px rgba(0,255,136,.45);
+    animation: aiPulse 2.4s ease-in-out infinite; z-index:3;
+}
+@keyframes aiPulse {
+    0%,100%{ transform:scale(1);} 50%{ transform:scale(1.2);}
+}
+.ai-ring { position:absolute; border-radius:50%; border:1.5px solid rgba(0,255,136,.55);
+    box-shadow:0 0 14px rgba(0,255,136,.4), inset 0 0 14px rgba(0,255,136,.25); }
+.ai-r1 { width:160px; height:160px; animation: spinA 6s linear infinite; border-style:dashed; }
+.ai-r2 { width:235px; height:235px; animation: spinB 10s linear infinite reverse; border-top-color:rgba(0,255,136,.9); border-right-color:transparent; }
+.ai-r3 { width:310px; height:310px; animation: spinA 15s linear infinite; border-left-color:rgba(124,255,196,.9); border-bottom-color:transparent; }
+.ai-eq { position:absolute; width:300px; height:115px; border-radius:50%; border:1.5px solid rgba(0,255,136,.45); box-shadow:0 0 16px rgba(0,255,136,.3); animation: spinFlat 8s linear infinite; }
+.ai-eq2{ position:absolute; width:115px; height:300px; border-radius:50%; border:1.5px solid rgba(0,255,136,.35); box-shadow:0 0 16px rgba(0,255,136,.25); animation: spinFlat 12s linear infinite reverse; }
+.ai-halo { position:absolute; width:380px; height:380px; border-radius:50%;
+    background: radial-gradient(circle, rgba(0,255,136,.12), transparent 65%); animation: haloBreath 4s ease-in-out infinite; }
+@keyframes spinA{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes spinB{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes spinFlat{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+@keyframes haloBreath{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}
+.ai-dots{ position:absolute; width:290px; height:290px; animation: spinA 22s linear infinite; }
+.ai-dots span{ position:absolute; width:2.5px; height:2.5px; border-radius:50%; background:#7cffc4; box-shadow:0 0 4px #00ff88; }
+</style>
+<div class="ai-core-wrap">
+  <div class="ai-core">
+    <div class="ai-halo"></div>
+    <div class="ai-ring ai-r3"></div>
+    <div class="ai-ring ai-r2"></div>
+    <div class="ai-eq"></div>
+    <div class="ai-eq2"></div>
+    <div class="ai-ring ai-r1"></div>
+    <div class="ai-dots" id="aiDots"></div>
+    <div class="ai-nucleus"></div>
+  </div>
+</div>
+<script>
+(function(){
+  var box=document.getElementById('aiDots');
+  if(!box||box.dataset.done)return; box.dataset.done="1";
+  var R=145,cx=145,cy=145,N=64;
+  for(var i=0;i<N;i++){
+    var a=Math.random()*Math.PI*2, r=R*Math.sqrt(Math.random());
+    var s=document.createElement('span');
+    s.style.left=(cx+r*Math.cos(a))+'px'; s.style.top=(cy+r*Math.sin(a))+'px';
+    s.style.opacity=(0.3+Math.random()*0.7).toFixed(2);
+    box.appendChild(s);
+  }
+})();
+</script>
+""", unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div style="text-align:center;">'
+        f'<p style="color:{GREEN}; font-size:24px; letter-spacing:4px; '
+        f'text-shadow:0 0 12px rgba(0,255,136,.6); margin-bottom:2px;">CORE</p>'
+        f'<p style="color:{SUBTLE}; font-size:14px;">주식 분석 AI 비서</p></div>',
+        unsafe_allow_html=True,
+    )
+    st.write("")
+
+    st.info(
+        "🤖 **코어가 깨어났어.** 지금은 얼굴(코어)만 완성된 상태야.\n\n"
+        "다음 단계에서 여기에 **음성으로 질문하기**(마이크로 종목 물어보기)랑 "
+        "**규칙 기반 분석 답변**(네 분석 데이터를 말로 풀어주기)을 붙일 거야. "
+        "그때 종목 미니 차트도 이 옆에 뜨게 만들고."
+    )
+    st.caption("⚠️ 이 비서는 종목을 찍어주거나 미래를 예측하지 않아. "
+               "네 분석기 데이터를 해석해서 보여주는 역할이야.")
 
 # ============================================================
 #  사용법 화면
