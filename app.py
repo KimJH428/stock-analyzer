@@ -253,56 +253,37 @@ def overheat_label(score):
 
 # ---------- 공포·탐욕 온도계 (시장 전체) ----------
 @st.cache_data(ttl=1800, show_spinner=False)
-def market_breadth(market_key: str, n: int, today_key: str):
-    """상위 n개 종목을 훑어서 시장 전체 분위기(공포~탐욕)를 0~100으로.
-    재료: 상승종목비율 + 20일선위비율 + 신고가근접비율. 셋의 평균.
-    market_key: 'KR' / 'NASDAQ' / 'S&P500'."""
+def breadth_one(market_key: str, code: str, today_key: str):
+    """종목 하나의 시장폭 기여를 계산: (상승?, 20일선위?, 신고가근접?). 실패 시 None.
+    종목 단위로 캐시되니까 스캐너/공포탐욕에서 같은 종목은 재사용된다."""
+    try:
+        if market_key == "KR":
+            import FinanceDataReader as fdr
+            df = fdr.DataReader(code, datetime.today() - timedelta(days=120))
+        else:
+            df = yf.download(code, period="4mo", progress=False)
+            if df is not None and isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+    except Exception:
+        return None
+    if df is None or len(df) < 25:
+        return None
+    c = df["Close"].astype(float).dropna()
+    if len(c) < 25:
+        return None
+    is_up = bool(c.iloc[-1] > c.iloc[-2])
+    above_ma = bool(c.iloc[-1] > c.rolling(20).mean().iloc[-1])
+    hi = c.iloc[-60:].max() if len(c) >= 60 else c.max()
+    near_high = bool(hi > 0 and c.iloc[-1] / hi >= 0.97)
+    return (is_up, above_ma, near_high)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def breadth_listing(market_key: str, n: int):
+    """공포탐욕용 종목 명단."""
     if market_key == "KR":
-        listing = load_krx_top(n)
-    else:
-        listing = load_us(market_key, n)
-    if listing is None or len(listing) == 0:
-        return None, {}, 0
-
-    up = above = nearhigh = total = 0
-    for _, row in listing.iterrows():
-        try:
-            if market_key == "KR":
-                import FinanceDataReader as fdr
-                df = fdr.DataReader(row["Code"], datetime.today() - timedelta(days=120))
-            else:
-                df = yf.download(row["Code"], period="4mo", progress=False)
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
-        except Exception:
-            continue
-        if df is None or len(df) < 25:
-            continue
-        c = df["Close"].astype(float).dropna()
-        if len(c) < 25:
-            continue
-        total += 1
-        # 당일 등락
-        if c.iloc[-1] > c.iloc[-2]:
-            up += 1
-        # 20일선 위
-        if c.iloc[-1] > c.rolling(20).mean().iloc[-1]:
-            above += 1
-        # 신고가(60일) 근접
-        hi = c.iloc[-60:].max() if len(c) >= 60 else c.max()
-        if hi > 0 and c.iloc[-1] / hi >= 0.97:
-            nearhigh += 1
-
-    if total == 0:
-        return None, {}, 0
-
-    parts = {
-        "상승 종목 비율": round(up / total * 100, 1),
-        "20일선 위 비율": round(above / total * 100, 1),
-        "신고가 근접 비율": round(nearhigh / total * 100, 1),
-    }
-    score = round(sum(parts.values()) / 3)
-    return score, parts, total
+        return load_krx_top(n)
+    return load_us(market_key, n)
 
 
 def fear_greed_label(score):
@@ -819,14 +800,40 @@ elif st.session_state.page == "feargreed":
         st.session_state.fg_result = None
 
     if fg_btn:
-        today_key = "fg-v1-" + datetime.today().strftime("%Y-%m-%d-%H")
-        with st.spinner(f"{fg_n}개 종목을 훑어서 시장 온도 재는 중... (좀 걸려)"):
-            try:
-                score, parts, total = market_breadth(fg_market, fg_n, today_key)
-            except Exception as e:
-                score, parts, total = None, {}, 0
-                st.session_state.fg_error = f"{type(e).__name__}: {e}"
-        st.session_state.fg_result = (score, parts, total, fg_market_label)
+        today_key = "fg-v2-" + datetime.today().strftime("%Y-%m-%d-%H")
+        try:
+            listing = breadth_listing(fg_market, fg_n)
+        except Exception as e:
+            listing = None
+            st.session_state.fg_error = f"{type(e).__name__}: {e}"
+
+        if listing is None or len(listing) == 0:
+            st.session_state.fg_result = (None, {}, 0, fg_market_label)
+        else:
+            codes = list(listing["Code"])
+            up = above = nearhigh = total = 0
+            prog = st.progress(0, text=f"시장 온도 재는 중... 0 / {len(codes)}")
+            for i, code in enumerate(codes):
+                res = breadth_one(fg_market, code, today_key)
+                if res is not None:
+                    total += 1
+                    if res[0]: up += 1
+                    if res[1]: above += 1
+                    if res[2]: nearhigh += 1
+                prog.progress((i + 1) / len(codes),
+                              text=f"시장 온도 재는 중... {i + 1} / {len(codes)}  (유효 {total}개)")
+            prog.empty()
+
+            if total == 0:
+                st.session_state.fg_result = (None, {}, 0, fg_market_label)
+            else:
+                parts = {
+                    "상승 종목 비율": round(up / total * 100, 1),
+                    "20일선 위 비율": round(above / total * 100, 1),
+                    "신고가 근접 비율": round(nearhigh / total * 100, 1),
+                }
+                score = round(sum(parts.values()) / 3)
+                st.session_state.fg_result = (score, parts, total, fg_market_label)
 
     if st.session_state.fg_result is None:
         st.write("👈 왼쪽에서 시장을 고르고 **온도 측정**을 눌러줘.")
