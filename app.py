@@ -773,6 +773,25 @@ if st.session_state.page == "home":
     position: absolute; width: 2.5px; height: 2.5px; border-radius: 50%;
     background: #7cffc4; box-shadow: 0 0 4px #00ff88;
 }
+/* 점들을 CSS로 직접 배치 (구 표면처럼) */
+.core-dots span:nth-child(1){left:60px;top:40px;opacity:.7}
+.core-dots span:nth-child(2){left:170px;top:55px;opacity:.5}
+.core-dots span:nth-child(3){left:200px;top:120px;opacity:.8}
+.core-dots span:nth-child(4){left:40px;top:110px;opacity:.6}
+.core-dots span:nth-child(5){left:90px;top:30px;opacity:.5}
+.core-dots span:nth-child(6){left:150px;top:190px;opacity:.7}
+.core-dots span:nth-child(7){left:70px;top:180px;opacity:.6}
+.core-dots span:nth-child(8){left:185px;top:160px;opacity:.5}
+.core-dots span:nth-child(9){left:115px;top:50px;opacity:.8}
+.core-dots span:nth-child(10){left:30px;top:140px;opacity:.5}
+.core-dots span:nth-child(11){left:205px;top:90px;opacity:.6}
+.core-dots span:nth-child(12){left:130px;top:200px;opacity:.7}
+.core-dots span:nth-child(13){left:50px;top:75px;opacity:.5}
+.core-dots span:nth-child(14){left:175px;top:30px;opacity:.6}
+.core-dots span:nth-child(15){left:100px;top:195px;opacity:.5}
+.core-dots span:nth-child(16){left:215px;top:140px;opacity:.7}
+.core-dots span:nth-child(17){left:25px;top:100px;opacity:.6}
+.core-dots span:nth-child(18){left:145px;top:35px;opacity:.5}
 /* 바깥 후광 */
 .core-halo {
     position: absolute; width: 300px; height: 300px; border-radius: 50%;
@@ -789,44 +808,29 @@ if st.session_state.page == "home":
 .core:hover .core-nucleus { animation-duration: 1.1s; }
 .core:hover .ring-1 { animation-duration: 2.5s; }
 .core:hover .ring-2 { animation-duration: 4s; }
+.core { cursor: default; transition: transform .25s; }
+.core-wrap:hover .core { transform: scale(1.05); }
+</style>
 </style>
 <div class="core-wrap">
-  <div class="core">
+  <div class="core" id="coreBtn">
     <div class="core-halo"></div>
     <div class="core-ring ring-3"></div>
     <div class="core-ring ring-2"></div>
     <div class="ring-eq"></div>
     <div class="ring-eq2"></div>
     <div class="core-ring ring-1"></div>
-    <div class="core-dots" id="coreDots"></div>
+    <div class="core-dots" id="coreDots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
     <div class="core-nucleus"></div>
   </div>
-  <div class="core-label">◆ CORE</div>
 </div>
-<script>
-// 구 표면처럼 점들을 원형으로 흩뿌리기 (한 번만)
-(function(){
-  var box = document.getElementById('coreDots');
-  if (!box || box.dataset.done) return;
-  box.dataset.done = "1";
-  var R = 115, cx = 115, cy = 115, N = 54;
-  for (var i=0;i<N;i++){
-    var a = Math.random()*Math.PI*2;
-    var r = R*Math.sqrt(Math.random());
-    var s = document.createElement('span');
-    s.style.left = (cx + r*Math.cos(a)) + 'px';
-    s.style.top  = (cy + r*Math.sin(a)) + 'px';
-    s.style.opacity = (0.3 + Math.random()*0.7).toFixed(2);
-    box.appendChild(s);
-  }
-})();
-</script>
 """, unsafe_allow_html=True)
 
-    # 코어를 누르는 버튼 (구 바로 아래, 가운데 좁게)
-    bcol1, bcol2, bcol3 = st.columns([1, 1.4, 1])
+    # 구 바로 아래에 딱 붙는 버튼 (구와 한 덩어리처럼) — 누르면 AI 페이지로
+    bcol1, bcol2, bcol3 = st.columns([1, 1.6, 1])
     with bcol2:
-        st.button("🤖 AI 비서 깨우기", type="primary", use_container_width=True,
+        st.button("◆  코어 활성화 · AI 비서 깨우기  ◆", key="core_to_ai",
+                  type="primary", use_container_width=True,
                   on_click=go_page, args=("ai",))
 
     st.write("")
@@ -875,7 +879,15 @@ elif st.session_state.page == "ai":
     # 큰 코어 (AI 비서의 얼굴)
     st.markdown("""
 <style>
-.ai-core-wrap { display:flex; flex-direction:column; align-items:center; margin: 10px 0 4px; }
+.ai-core-wrap { display:flex; flex-direction:column; align-items:center; margin: 10px 0 4px;
+    animation: warpIn 1.1s cubic-bezier(.2,.8,.2,1) both; }
+/* 빨려들어온 듯 확 나타나는 등장: 작게 회전하며 시작 → 제자리 */
+@keyframes warpIn {
+    0%   { transform: scale(0.04) rotate(-220deg); opacity: 0; filter: blur(8px); }
+    55%  { opacity: 1; filter: blur(0); }
+    70%  { transform: scale(1.12) rotate(8deg); }
+    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
 .ai-core { position: relative; width: 340px; height: 340px; display:flex; align-items:center; justify-content:center; }
 .ai-nucleus {
     position:absolute; width:70px; height:70px; border-radius:50%;
@@ -901,6 +913,26 @@ elif st.session_state.page == "ai":
 @keyframes haloBreath{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}
 .ai-dots{ position:absolute; width:290px; height:290px; animation: spinA 22s linear infinite; }
 .ai-dots span{ position:absolute; width:2.5px; height:2.5px; border-radius:50%; background:#7cffc4; box-shadow:0 0 4px #00ff88; }
+.ai-dots span:nth-child(1){left:80px;top:50px;opacity:.7}
+.ai-dots span:nth-child(2){left:210px;top:70px;opacity:.5}
+.ai-dots span:nth-child(3){left:250px;top:150px;opacity:.8}
+.ai-dots span:nth-child(4){left:55px;top:140px;opacity:.6}
+.ai-dots span:nth-child(5){left:120px;top:40px;opacity:.5}
+.ai-dots span:nth-child(6){left:190px;top:240px;opacity:.7}
+.ai-dots span:nth-child(7){left:90px;top:230px;opacity:.6}
+.ai-dots span:nth-child(8){left:235px;top:200px;opacity:.5}
+.ai-dots span:nth-child(9){left:145px;top:60px;opacity:.8}
+.ai-dots span:nth-child(10){left:40px;top:180px;opacity:.5}
+.ai-dots span:nth-child(11){left:255px;top:110px;opacity:.6}
+.ai-dots span:nth-child(12){left:165px;top:250px;opacity:.7}
+.ai-dots span:nth-child(13){left:65px;top:95px;opacity:.5}
+.ai-dots span:nth-child(14){left:220px;top:40px;opacity:.6}
+.ai-dots span:nth-child(15){left:125px;top:245px;opacity:.5}
+.ai-dots span:nth-child(16){left:265px;top:175px;opacity:.7}
+.ai-dots span:nth-child(17){left:35px;top:125px;opacity:.6}
+.ai-dots span:nth-child(18){left:180px;top:45px;opacity:.5}
+.ai-dots span:nth-child(19){left:100px;top:265px;opacity:.6}
+.ai-dots span:nth-child(20){left:245px;top:255px;opacity:.5}
 </style>
 <div class="ai-core-wrap">
   <div class="ai-core">
@@ -910,24 +942,10 @@ elif st.session_state.page == "ai":
     <div class="ai-eq"></div>
     <div class="ai-eq2"></div>
     <div class="ai-ring ai-r1"></div>
-    <div class="ai-dots" id="aiDots"></div>
+    <div class="ai-dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
     <div class="ai-nucleus"></div>
   </div>
 </div>
-<script>
-(function(){
-  var box=document.getElementById('aiDots');
-  if(!box||box.dataset.done)return; box.dataset.done="1";
-  var R=145,cx=145,cy=145,N=64;
-  for(var i=0;i<N;i++){
-    var a=Math.random()*Math.PI*2, r=R*Math.sqrt(Math.random());
-    var s=document.createElement('span');
-    s.style.left=(cx+r*Math.cos(a))+'px'; s.style.top=(cy+r*Math.sin(a))+'px';
-    s.style.opacity=(0.3+Math.random()*0.7).toFixed(2);
-    box.appendChild(s);
-  }
-})();
-</script>
 """, unsafe_allow_html=True)
 
     st.markdown(
