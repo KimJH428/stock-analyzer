@@ -301,6 +301,134 @@ def fear_greed_label(score):
     return "극단적 공포", "stat-down", "🥶"
 
 
+# ============================================================
+#  AI 비서 두뇌 (규칙 기반 — API 없이 데이터를 말로 풀어줌)
+# ============================================================
+def assistant_collect(ticker: str, period: str = "6mo"):
+    """종목의 지표들을 한 번에 모은다. 비서가 이걸 보고 답을 만든다."""
+    data, source = fetch_ohlc(ticker, period)
+    bad = (data is None or len(data) == 0 or "Close" not in getattr(data, "columns", []))
+    if not bad:
+        close = data["Close"].squeeze()
+        if not isinstance(close, pd.Series) or close.dropna().shape[0] < 25:
+            bad = True
+    if bad:
+        return None
+
+    close = data["Close"].squeeze().dropna()
+    cur = float(close.iloc[-1])
+    info = {"ticker": ticker.upper(), "cur": cur}
+
+    # 과열 점수
+    oh, oh_parts = overheat_score(close)
+    info["overheat"] = oh
+    info["overheat_parts"] = oh_parts
+
+    # RSI(6)
+    try:
+        info["rsi"] = float(rsi(close, 6).iloc[-1])
+    except Exception:
+        info["rsi"] = None
+
+    # 상대강도
+    idx_ret, idx_name, idx_tk, idx_close = relative_strength(ticker, period)
+    info["idx_name"] = idx_name
+    if idx_ret is not None:
+        stock_ret = (cur / float(close.iloc[0]) - 1) * 100
+        info["stock_ret"] = stock_ret
+        info["idx_ret"] = idx_ret
+        info["rel_strength"] = stock_ret - idx_ret
+    else:
+        info["rel_strength"] = None
+
+    # ATR 기반 손절·익절
+    hi = data["High"] if "High" in data.columns else None
+    lo = data["Low"] if "Low" in data.columns else None
+    atrp = atr_pct(hi, lo, close)
+    info["atr_pct"] = atrp
+    stop_pct = 8.0 if atrp is None else max(4.0, min(20.0, atrp * 2.0))
+    info["stop_pct"] = stop_pct
+    info["target_pct"] = stop_pct * 1.5
+    info["stop_price"] = cur * (1 - stop_pct / 100)
+    info["target_price"] = cur * (1 + stop_pct * 1.5 / 100)
+
+    # 신고가 근접
+    hi60 = float(close.iloc[-60:].max()) if len(close) >= 60 else float(close.max())
+    info["to_high"] = (hi60 / cur - 1) * 100 if cur > 0 else 0.0
+
+    # 이동평균 정배열 여부 (20 > 60)
+    if len(close) >= 60:
+        ma20 = float(close.rolling(20).mean().iloc[-1])
+        ma60 = float(close.rolling(60).mean().iloc[-1])
+        info["ma_aligned"] = ma20 > ma60
+    else:
+        info["ma_aligned"] = None
+
+    return info
+
+
+def assistant_answer(info: dict, question: str = "") -> str:
+    """모은 지표 + 질문으로 한국어 답을 조립한다. 예측·추천은 절대 안 함."""
+    q = question.strip()
+    t = info["ticker"]
+    oh = info.get("overheat")
+    rs = info.get("rel_strength")
+    rsi_v = info.get("rsi")
+
+    # --- 질문 의도 파악 (키워드 기반) ---
+    ask_danger = any(w in q for w in ["위험", "괜찮", "조심", "물려", "물릴"])
+    ask_enter = any(w in q for w in ["들어가", "사도", "매수", "지금 사", "진입", "타이밍"])
+    ask_strong = any(w in q for w in ["강", "주도", "잘 가", "센", "약"])
+    ask_sell = any(w in q for w in ["팔", "매도", "익절", "손절"])
+
+    lines = []
+
+    # 과열 상태는 거의 모든 답에 깔아줌
+    if oh is not None:
+        if oh >= 70:
+            lines.append(f"{t}는 지금 과열·위험 점수가 {oh}/100으로 **매우 과열** 상태야. 이미 단기적으로 많이 오른 자리라는 뜻이야.")
+        elif oh >= 45:
+            lines.append(f"{t}는 과열 점수 {oh}/100으로 **과열** 구간이야. 새로 들어가기엔 좀 부담스러운 자리야.")
+        elif oh >= 25:
+            lines.append(f"{t}는 과열 점수 {oh}/100으로 **주의** 정도야. 극단적으로 과열되진 않았어.")
+        else:
+            lines.append(f"{t}는 과열 점수 {oh}/100으로 **안전권**이야. 과열로 인한 위험은 낮은 편이야.")
+
+    # 상대강도
+    if rs is not None:
+        if rs > 5:
+            lines.append(f"상대강도는 시장({info['idx_name']})보다 {rs:+.1f}%p 강해 — 주도주 쪽이야. 시장을 이기고 있다는 뜻이지.")
+        elif rs < -5:
+            lines.append(f"상대강도는 시장보다 {rs:.1f}%p 약해. 같은 기간 시장이 더 잘 갔으니, 오르더라도 힘이 약한 상승이야.")
+        else:
+            lines.append(f"상대강도는 시장이랑 비슷한 수준이야. 특별히 강하지도 약하지도 않아.")
+
+    # RSI
+    if rsi_v is not None:
+        if rsi_v >= 75:
+            lines.append(f"단기 RSI가 {rsi_v:.0f}으로 과열(과매수) 구간이야 — 단기 조정이 올 수도 있어.")
+        elif rsi_v <= 30:
+            lines.append(f"단기 RSI가 {rsi_v:.0f}으로 과매도 구간이야 — 과하게 빠졌다는 신호일 수 있어.")
+
+    # 질문별 결론 한 줄
+    if ask_enter or ask_danger:
+        if oh is not None and oh >= 45:
+            lines.append("👉 종합하면, **지금 새로 진입하는 건 신중한 게 좋아.** 과열 구간이라 고점에서 물릴 위험이 있어. 꼭 들어가려면 손절선을 먼저 정해두고 분할로.")
+        elif oh is not None and oh < 25 and (rs is None or rs > -5):
+            lines.append("👉 종합하면, 과열로 인한 위험은 낮은 편이야. 다만 '안전 점수가 낮다 = 사도 좋다'는 절대 아니야 — 회사 실적이랑 시장 상황은 따로 봐야 해.")
+        else:
+            lines.append("👉 종합하면, 애매한 구간이야. 확신이 없으면 한 번에 들어가지 말고 나눠서, 손절선 정해두고 접근해.")
+    elif ask_sell:
+        lines.append(f"👉 손절선은 {info['stop_price']:,.0f}(-{info['stop_pct']:.0f}%), 익절목표는 {info['target_price']:,.0f}(+{info['target_pct']:.0f}%)로 잡아둘 만해. 단 이건 미리 정하는 규칙이지 '여기까지 온다'는 예측이 아니야.")
+    elif ask_strong:
+        pass  # 상대강도는 위에서 이미 말함
+
+    # 마무리 경고
+    lines.append("— 이건 현재 상태 요약이지 '사라/팔라'나 미래 예측이 아니야. 최종 판단은 네가 하는 거야.")
+
+    return "\n\n".join(lines)
+
+
 # ---------- 데이터 가져오기 (3단 예비 체계) ----------
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_ohlc(ticker: str, period: str):
@@ -957,14 +1085,85 @@ elif st.session_state.page == "ai":
     )
     st.write("")
 
-    st.info(
-        "🤖 **코어가 깨어났어.** 지금은 얼굴(코어)만 완성된 상태야.\n\n"
-        "다음 단계에서 여기에 **음성으로 질문하기**(마이크로 종목 물어보기)랑 "
-        "**규칙 기반 분석 답변**(네 분석 데이터를 말로 풀어주기)을 붙일 거야. "
-        "그때 종목 미니 차트도 이 옆에 뜨게 만들고."
-    )
+    # ----- 비서 입력 영역 -----
+    ac1, ac2 = st.columns([1, 2])
+    with ac1:
+        ai_ticker = st.text_input("종목 코드", value=st.session_state.get("ai_ticker", ""),
+                                  placeholder="예: 005930.KS, TSLA",
+                                  key="ai_ticker_input")
+    with ac2:
+        ai_q = st.text_input("질문", placeholder="예: 이거 지금 들어가도 돼? / 위험해? / 얼마나 강해?",
+                             key="ai_question_input")
+
+    # 빠른 질문 버튼
+    st.caption("빠른 질문:")
+    qc1, qc2, qc3, qc4 = st.columns(4)
+    quick = None
+    if qc1.button("지금 어때?", use_container_width=True): quick = "지금 전반적으로 어때?"
+    if qc2.button("들어가도 돼?", use_container_width=True): quick = "지금 들어가도 돼?"
+    if qc3.button("위험해?", use_container_width=True): quick = "이거 지금 위험해?"
+    if qc4.button("얼마나 강해?", use_container_width=True): quick = "시장보다 얼마나 강해?"
+
+    ask_now = st.button("🤖 비서에게 묻기", type="primary", use_container_width=True)
+
+    # 질문 처리
+    question = quick if quick else (ai_q if ask_now else None)
+    if (quick or ask_now) and ai_ticker.strip():
+        st.session_state.ai_ticker = ai_ticker.strip()
+        with st.spinner("코어가 분석 중..."):
+            info = assistant_collect(ai_ticker.strip())
+        if info is None:
+            st.error(f"'{ai_ticker.strip()}' 데이터를 못 가져왔어. 종목 코드를 확인해줘. "
+                     "(한국 주식은 숫자+.KS/.KQ, 미국은 영문 티커)")
+        else:
+            answer = assistant_answer(info, question or "지금 어때?")
+            # 비서 답변 (말풍선 느낌)
+            st.markdown(f"""
+<div style="background:rgba(0,255,136,0.06); border:1px solid {BORDER};
+     border-left:3px solid {GREEN}; border-radius:10px; padding:16px 18px; margin:10px 0;">
+  <div style="color:{GREEN}; font-size:13px; letter-spacing:2px; margin-bottom:8px;">◆ CORE</div>
+  <div style="color:{TEXT}; font-size:15px; line-height:1.7; white-space:pre-line;">{answer}</div>
+</div>
+""", unsafe_allow_html=True)
+
+            # 미니 차트 (종목 가격 + 20일선)
+            mdata, _ = fetch_ohlc(ai_ticker.strip(), "6mo")
+            if mdata is not None and "Close" in mdata.columns:
+                mc = mdata["Close"].squeeze()
+                mini = go.Figure()
+                mini.add_trace(go.Scatter(x=mc.index, y=mc, name="종가",
+                                          line=dict(color=GREEN, width=1.8)))
+                if len(mc) >= 20:
+                    mini.add_trace(go.Scatter(x=mc.index, y=mc.rolling(20).mean(),
+                                              name="20일선", line=dict(color="#FFB030", width=1, dash="dot")))
+                mini.update_layout(height=240, paper_bgcolor=BG, plot_bgcolor=BG,
+                                   font=dict(color=TEXT, size=11), showlegend=True,
+                                   margin=dict(l=10, r=10, t=24, b=10),
+                                   title=dict(text=f"{info['ticker']} · 최근 6개월", font=dict(size=13)))
+                mini.update_xaxes(gridcolor=PANEL); mini.update_yaxes(gridcolor=PANEL)
+                st.plotly_chart(mini, use_container_width=True, config={"displaylogo": False})
+
+            # 핵심 지표 카드
+            mcols = st.columns(4)
+            mcols[0].markdown(f"""<div class="stat-card"><div class="stat-label">현재가</div>
+<div class="stat-value">{info['cur']:,.0f}</div></div>""", unsafe_allow_html=True)
+            oh_txt = f"{info['overheat']}" if info['overheat'] is not None else "-"
+            mcols[1].markdown(f"""<div class="stat-card"><div class="stat-label">과열 점수</div>
+<div class="stat-value">{oh_txt}</div></div>""", unsafe_allow_html=True)
+            rs_txt = f"{info['rel_strength']:+.1f}%p" if info['rel_strength'] is not None else "-"
+            mcols[2].markdown(f"""<div class="stat-card"><div class="stat-label">상대강도</div>
+<div class="stat-value">{rs_txt}</div></div>""", unsafe_allow_html=True)
+            rsi_txt = f"{info['rsi']:.0f}" if info['rsi'] is not None else "-"
+            mcols[3].markdown(f"""<div class="stat-card"><div class="stat-label">RSI(6)</div>
+<div class="stat-value">{rsi_txt}</div></div>""", unsafe_allow_html=True)
+    elif (quick or ask_now) and not ai_ticker.strip():
+        st.warning("먼저 종목 코드를 넣어줘. (예: 005930.KS, TSLA)")
+    else:
+        st.info("종목 코드를 넣고 질문하거나 빠른 질문 버튼을 눌러봐. "
+                "코어가 그 종목의 과열도·상대강도·RSI를 보고 답해줄게.")
+
     st.caption("⚠️ 이 비서는 종목을 찍어주거나 미래를 예측하지 않아. "
-               "네 분석기 데이터를 해석해서 보여주는 역할이야.")
+               "네 분석기 데이터를 해석해서 현재 상태를 말로 풀어주는 역할이야. 최종 판단은 네가 하는 거야.")
 
 # ============================================================
 #  사용법 화면
