@@ -42,7 +42,7 @@ def core_3d_html(size: int = 320):
   var H = {size};
   var scene = new THREE.Scene();
   var camera = new THREE.PerspectiveCamera(50, W/H, 0.1, 1000);
-  camera.position.z = 5.2;
+  camera.position.z = 6.2;
   var renderer = new THREE.WebGLRenderer({{ antialias:true, alpha:true }});
   renderer.setSize(W, H);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
@@ -54,7 +54,7 @@ def core_3d_html(size: int = 320):
   var GREEN = 0x00ff88, MINT = 0x7cffc4;
 
   // 1) 점 구름 — 진짜 구 표면에 박힌 점들 (피보나치 분포로 고르게)
-  var N = 900;
+  var N = 1300;
   var pg = new THREE.BufferGeometry();
   var pos = new Float32Array(N*3);
   var R = 2.0;
@@ -79,27 +79,33 @@ def core_3d_html(size: int = 320):
   );
   core.add(wire);
 
-  // 3) 발광 핵 (중심)
+  // 3) 발광 핵 (중심) — 강렬하게
   var nucleus = new THREE.Mesh(
-    new THREE.SphereGeometry(0.42, 24, 24),
-    new THREE.MeshBasicMaterial({{ color:0xd6ffe9 }})
+    new THREE.SphereGeometry(0.5, 24, 24),
+    new THREE.MeshBasicMaterial({{ color:0xeafff3 }})
   );
   core.add(nucleus);
   var glow = new THREE.Mesh(
-    new THREE.SphereGeometry(0.72, 24, 24),
-    new THREE.MeshBasicMaterial({{ color:GREEN, transparent:true, opacity:0.28 }})
+    new THREE.SphereGeometry(0.95, 24, 24),
+    new THREE.MeshBasicMaterial({{ color:GREEN, transparent:true, opacity:0.35 }})
   );
   core.add(glow);
+  var glow2 = new THREE.Mesh(
+    new THREE.SphereGeometry(1.4, 24, 24),
+    new THREE.MeshBasicMaterial({{ color:GREEN, transparent:true, opacity:0.14 }})
+  );
+  core.add(glow2);
 
-  // 4) 빛줄기 (중심에서 뻗는 선)
+  // 4) 빛줄기 (중심에서 뻗는 선) — 릴스처럼 강렬하게
   var rays = new THREE.Group();
-  for (var r=0;r<14;r++){{
+  for (var r=0;r<22;r++){{
     var dir = new THREE.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1).normalize();
-    var len = 2.4 + Math.random()*1.4;
+    var len = 2.6 + Math.random()*2.2;
     var geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0,0,0), dir.clone().multiplyScalar(len)
     ]);
-    var lmat = new THREE.LineBasicMaterial({{ color:MINT, transparent:true, opacity:0.22 }});
+    var op = 0.18 + Math.random()*0.3;
+    var lmat = new THREE.LineBasicMaterial({{ color:MINT, transparent:true, opacity:op }});
     rays.add(new THREE.Line(geo, lmat));
   }}
   core.add(rays);
@@ -125,7 +131,9 @@ def core_3d_html(size: int = 320):
     var s = 1 + Math.sin(t*2.2)*0.14;
     nucleus.scale.set(s,s,s);
     glow.scale.set(s*1.05, s*1.05, s*1.05);
-    glow.material.opacity = 0.22 + Math.sin(t*2.2)*0.08;
+    glow.material.opacity = 0.28 + Math.sin(t*2.2)*0.1;
+    glow2.scale.set(s*1.1, s*1.1, s*1.1);
+    glow2.material.opacity = 0.10 + Math.sin(t*2.2)*0.06;
     renderer.render(scene, camera);
   }}
   animate();
@@ -978,7 +986,8 @@ if st.session_state.page == "home":
     )
 
     # ---- 중앙: 3D 코어 구 (Three.js) ----
-    components.html(core_3d_html(size=340), height=350)
+    components.html(core_3d_html(size=420), height=430)
+    st.write("")
 
 
     # 구 바로 아래에 딱 붙는 버튼 (구와 한 덩어리처럼) — 누르면 AI 페이지로
@@ -1032,7 +1041,7 @@ elif st.session_state.page == "ai":
     st.button("← 홈으로", on_click=go_page, args=("home",))
 
     # 큰 코어 (AI 비서의 얼굴) — 3D
-    components.html(core_3d_html(size=380), height=390)
+    components.html(core_3d_html(size=460), height=470)
 
     st.markdown(
         f'<div style="text-align:center;">'
@@ -1120,6 +1129,33 @@ elif st.session_state.page == "ai":
   <div style="color:{TEXT}; font-size:15px; line-height:1.7; white-space:pre-line;">{answer}</div>
 </div>
 """, unsafe_allow_html=True)
+
+            # 🔊 음성으로 읽어주기 (브라우저 음성합성, 무료) — 자동 1회 + 다시 듣기 버튼
+            speak_txt = (answer.replace("*", "").replace("—", " ")
+                         .replace("👉", "").replace("\n", " ").replace('"', "'"))
+            components.html(f"""
+<div style="text-align:center;">
+  <button id="speakBtn" style="background:rgba(0,255,136,.12); color:#7cffc4;
+     border:1px solid #1f2d25; border-radius:8px; padding:8px 18px; font-size:14px;
+     cursor:pointer; font-family:sans-serif;">🔊 다시 듣기</button>
+</div>
+<script>
+(function(){{
+  var txt = "{speak_txt}";
+  function speak(){{
+    try {{
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(txt);
+      u.lang = "ko-KR"; u.rate = 1.05; u.pitch = 1.0;
+      window.speechSynthesis.speak(u);
+    }} catch(e) {{}}
+  }}
+  document.getElementById('speakBtn').addEventListener('click', speak);
+  // 답이 나오면 자동으로 한 번 읽어줌
+  setTimeout(speak, 400);
+}})();
+</script>
+""", height=56)
 
             # 미니 차트 (collect가 받아온 데이터 재활용 — 중복 다운로드 방지)
             mc = info.get("_close")
