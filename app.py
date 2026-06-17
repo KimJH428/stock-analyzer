@@ -303,6 +303,70 @@ def index_ticker_for(ticker: str):
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_valuation(ticker: str):
+    """PER·PBR·EPS·배당·섹터 같은 재무 지표를 받아온다.
+    이건 가격 데이터보다 훨씬 자주 막히고, 한국 종목은 비어 오는 경우가 많다.
+    못 받으면 None을 돌려서 우아하게 넘어간다."""
+    try:
+        info = yf.Ticker(ticker.upper().strip()).info
+    except Exception:
+        return None
+    if not isinstance(info, dict) or len(info) == 0:
+        return None
+    per = info.get("trailingPE")
+    pbr = info.get("priceToBook")
+    eps = info.get("trailingEps")
+    fwd_per = info.get("forwardPE")
+    div_yield = info.get("dividendYield")
+    sector = info.get("sector")
+    name = info.get("shortName") or info.get("longName")
+    mktcap = info.get("marketCap")
+    # 전부 비어있으면 의미 없음
+    if per is None and pbr is None and eps is None:
+        return None
+    return {
+        "name": name, "sector": sector, "per": per, "fwd_per": fwd_per,
+        "pbr": pbr, "eps": eps, "div_yield": div_yield, "mktcap": mktcap,
+    }
+
+
+def valuation_judge(per, pbr):
+    """PER·PBR을 일반적인 기준선과 비교해 '참고용' 코멘트를 만든다.
+    절대 '고평가=하락'으로 단정하지 않는다. 업종마다 기준이 다름을 명시."""
+    notes = []
+    # PER 기준선 (시장 평균 대략 15~20)
+    if per is not None and per > 0:
+        if per < 10:
+            notes.append(("PER", f"{per:.1f}", "낮은 편",
+                "시장 평균(약 15~20)보다 낮아. 저평가일 수도, 성장성이 낮게 평가된 것일 수도 있어."))
+        elif per <= 25:
+            notes.append(("PER", f"{per:.1f}", "보통",
+                "시장 평균 범위 안이야. 이익 대비 무난한 수준."))
+        elif per <= 50:
+            notes.append(("PER", f"{per:.1f}", "높은 편",
+                "평균보다 높아. 성장 기대가 크거나 다소 비싸게 거래되는 중일 수 있어."))
+        else:
+            notes.append(("PER", f"{per:.1f}", "매우 높음",
+                "상당히 높아. 큰 성장 기대가 반영됐거나 고평가 우려가 있을 수 있어."))
+    elif per is not None and per <= 0:
+        notes.append(("PER", "적자", "-",
+            "이익이 적자라 PER로 평가하기 어려워. 적자 기업은 PER이 의미 없어."))
+
+    # PBR 기준선 (1이 자산가치)
+    if pbr is not None and pbr > 0:
+        if pbr < 1:
+            notes.append(("PBR", f"{pbr:.2f}", "낮은 편",
+                "1배 미만 — 회사 장부상 자산보다 주가가 싸. 단, 싼 데는 이유가 있을 수도 있어."))
+        elif pbr <= 3:
+            notes.append(("PBR", f"{pbr:.2f}", "보통",
+                "무난한 범위. 자산 대비 적당한 수준."))
+        else:
+            notes.append(("PBR", f"{pbr:.2f}", "높은 편",
+                "자산 대비 높게 거래돼. 성장주에서 흔하지만 그만큼 기대가 반영된 거야."))
+    return notes
+
+
 def relative_strength(ticker: str, period: str):
     """상대강도: 이 종목이 같은 기간 시장지수보다 얼마나 더(덜) 올랐나.
     종목 상승률 - 지수 상승률. 양수면 시장을 이기는 '주도주', 음수면 시장보다 약함.
@@ -1768,8 +1832,8 @@ else:
     st.write("")
 
     # ---------- 탭: 차트 / 매매 내역 / 읽는 법 ----------
-    tab_chart, tab_plan, tab_trades, tab_guide = st.tabs(
-        ["🕯️ 차트", "🎯 매매 플랜", "📋 매매 내역", "📖 읽는 법"])
+    tab_chart, tab_plan, tab_value, tab_trades, tab_guide = st.tabs(
+        ["🕯️ 차트", "🎯 매매 플랜", "💰 밸류에이션", "📋 매매 내역", "📖 읽는 법"])
 
     with tab_chart:
         st.markdown(f"#### {q['ticker']} · {PERIOD_LABEL[q['period']]}")
@@ -1991,6 +2055,71 @@ else:
         st.caption("⚠️ 이 플랜 전체는 매수 추천이 아니야. 손절·익절·분할은 '사기로 이미 정했다면 이렇게 관리해라'는 "
                    "규칙이고, 애초에 살지 말지는 네가 판단하는 거야. 특히 위 **과열·위험 점수**가 높으면 "
                    "이 플랜을 짜기 전에 '지금 진입 자체가 맞나'부터 다시 생각해봐.")
+
+    with tab_value:
+        st.markdown(f"#### 💰 {q['ticker']} 밸류에이션")
+        st.caption("이 종목이 **이익·자산 대비 비싼지 싼지**(펀더멘털)를 보는 곳. "
+                   "지금까지 탭들이 '가격 움직임'을 봤다면, 여기는 '회사 가치'를 봐.")
+
+        with st.spinner("재무 데이터 가져오는 중..."):
+            val = fetch_valuation(q["ticker"])
+
+        if val is None:
+            st.warning("재무 데이터(PER·PBR 등)를 지금 못 받아왔어. 이 데이터는 가격 데이터보다 자주 막히고, "
+                       "특히 **한국 종목은 비어 오는 경우가 많아.** 잠시 후 다시 시도하거나, 미국 종목으로 해봐. "
+                       "(증권사 앱이나 네이버 금융에서 PER·PBR을 직접 보는 게 더 정확할 수도 있어)")
+        else:
+            # 기본 정보
+            if val.get("name") or val.get("sector"):
+                meta = []
+                if val.get("name"): meta.append(val["name"])
+                if val.get("sector"): meta.append(f"업종: {val['sector']}")
+                st.caption(" · ".join(meta))
+
+            # 핵심 지표 카드
+            vc = st.columns(4)
+            per_txt = f"{val['per']:.1f}" if val.get("per") else "-"
+            pbr_txt = f"{val['pbr']:.2f}" if val.get("pbr") else "-"
+            eps_txt = f"{val['eps']:,.0f}" if val.get("eps") else "-"
+            div_txt = f"{val['div_yield']*100:.2f}%" if val.get("div_yield") else "-"
+            vc[0].markdown(f"""<div class="stat-card"><div class="stat-label">PER (주가수익비율)</div>
+<div class="stat-value">{per_txt}</div></div>""", unsafe_allow_html=True)
+            vc[1].markdown(f"""<div class="stat-card"><div class="stat-label">PBR (주가순자산비율)</div>
+<div class="stat-value">{pbr_txt}</div></div>""", unsafe_allow_html=True)
+            vc[2].markdown(f"""<div class="stat-card"><div class="stat-label">EPS (주당순이익)</div>
+<div class="stat-value">{eps_txt}</div></div>""", unsafe_allow_html=True)
+            vc[3].markdown(f"""<div class="stat-card"><div class="stat-label">배당수익률</div>
+<div class="stat-value">{div_txt}</div></div>""", unsafe_allow_html=True)
+            st.write("")
+
+            # 평가 코멘트 (참고용)
+            notes = valuation_judge(val.get("per"), val.get("pbr"))
+            if notes:
+                st.markdown("##### 참고 해석")
+                for label, value, level, comment in notes:
+                    if level in ("높은 편", "매우 높음"):
+                        st.warning(f"**{label} {value} · {level}** — {comment}")
+                    elif level == "낮은 편":
+                        st.info(f"**{label} {value} · {level}** — {comment}")
+                    else:
+                        st.info(f"**{label} {value} · {level}** — {comment}")
+
+            if val.get("fwd_per"):
+                st.caption(f"참고: 예상 PER(내년 이익 기준)은 약 {val['fwd_per']:.1f}야. "
+                           "지금 PER보다 낮으면 '이익이 늘 것으로 기대된다'는 뜻이야.")
+
+            st.markdown("---")
+            st.markdown(
+                "**PER·PBR 읽는 법 (중요)**\n"
+                "- **PER**: 주가가 회사 이익의 몇 배인지. 낮으면 이익 대비 싸고, 높으면 비싸. "
+                "근데 **업종마다 기준이 완전히 달라** — IT는 보통 높고(성장 기대), 은행·철강은 낮아. "
+                "그래서 'PER 30 = 고평가'는 틀린 판단이야. 같은 업종끼리 비교해야 맞아.\n"
+                "- **PBR**: 주가가 회사 장부상 자산의 몇 배인지. 1배 미만이면 자산보다 싸게 거래되는 거야.\n"
+                "- **EPS**: 한 주가 1년에 벌어들이는 순이익. 클수록, 그리고 매년 늘수록 좋아."
+            )
+            st.caption("⚠️ '저평가니까 사라 / 고평가니까 팔라'가 절대 아니야. 저평가는 이유가 있어서 싼 것일 수도, "
+                       "고평가는 더 오를 수도 있어. 이 숫자들은 '회사 가치를 가늠하는 참고 자료'지 매수·매도 신호가 아니야. "
+                       "그리고 한 시점 숫자보다 **'매년 좋아지고 있나'**라는 흐름이 더 중요해.")
 
     with tab_trades:
         if trades:
