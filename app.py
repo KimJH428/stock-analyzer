@@ -956,13 +956,52 @@ if st.session_state.page == "home":
 .core:hover .ring-2 { animation-duration: 4s; }
 .core { cursor: default; transition: transform .25s; }
 .core-wrap:hover .core { transform: scale(1.05); }
-</style>
+
+/* SVG 그물망 구 (위선/경선) */
+.core-mesh { position:absolute; width:230px; height:230px; animation: spinA 30s linear infinite; opacity:.55; }
+.core-mesh ellipse, .core-mesh circle { fill:none; stroke:#00ff88; stroke-width:.6; vector-effect:non-scaling-stroke; }
+/* 중심에서 뻗는 빛줄기 */
+.core-rays { position:absolute; width:260px; height:260px; animation: raySpin 40s linear infinite; }
+.core-rays line { stroke:#7cffc4; stroke-width:.8; opacity:.25; }
+@keyframes raySpin { from{transform:rotate(0)} to{transform:rotate(-360deg)} }
+.ray-flash { animation: rayPulse 3s ease-in-out infinite; }
+@keyframes rayPulse { 0%,100%{opacity:.12} 50%{opacity:.4} }
 </style>
 <div class="core-wrap">
   <div class="core" id="coreBtn">
     <div class="core-halo"></div>
+    <!-- 빛줄기 (중심에서 방사형) -->
+    <svg class="core-rays" viewBox="0 0 260 260">
+      <g class="ray-flash">
+        <line x1="130" y1="130" x2="130" y2="6"/>
+        <line x1="130" y1="130" x2="254" y2="130"/>
+        <line x1="130" y1="130" x2="130" y2="254"/>
+        <line x1="130" y1="130" x2="6" y2="130"/>
+        <line x1="130" y1="130" x2="218" y2="42"/>
+        <line x1="130" y1="130" x2="42" y2="218"/>
+        <line x1="130" y1="130" x2="218" y2="218"/>
+        <line x1="130" y1="130" x2="42" y2="42"/>
+        <line x1="130" y1="130" x2="190" y2="20"/>
+        <line x1="130" y1="130" x2="70" y2="240"/>
+        <line x1="130" y1="130" x2="240" y2="190"/>
+        <line x1="130" y1="130" x2="20" y2="70"/>
+      </g>
+    </svg>
+    <div class="core-halo"></div>
     <div class="core-ring ring-3"></div>
     <div class="core-ring ring-2"></div>
+    <!-- 그물망 구 (위선 + 경선) -->
+    <svg class="core-mesh" viewBox="0 0 230 230">
+      <circle cx="115" cy="115" r="112"/>
+      <!-- 위선 (가로 타원, 점점 납작) -->
+      <ellipse cx="115" cy="115" rx="112" ry="38"/>
+      <ellipse cx="115" cy="115" rx="112" ry="74"/>
+      <ellipse cx="115" cy="115" rx="112" ry="104"/>
+      <!-- 경선 (세로 타원) -->
+      <ellipse cx="115" cy="115" rx="38" ry="112"/>
+      <ellipse cx="115" cy="115" rx="74" ry="112"/>
+      <ellipse cx="115" cy="115" rx="104" ry="112"/>
+    </svg>
     <div class="ring-eq"></div>
     <div class="ring-eq2"></div>
     <div class="core-ring ring-1"></div>
@@ -1079,44 +1118,44 @@ elif st.session_state.page == "ai":
 .ai-dots span:nth-child(18){left:180px;top:45px;opacity:.5}
 .ai-dots span:nth-child(19){left:100px;top:265px;opacity:.6}
 .ai-dots span:nth-child(20){left:245px;top:255px;opacity:.5}
-/* 방사형 빛줄기 (코어에서 뻗어나가는 광선) */
-.ai-rays { position:absolute; width:340px; height:340px; animation: spinA 40s linear infinite; }
-.ai-rays span {
-    position:absolute; left:50%; top:50%; width:2px; height:150px;
-    background: linear-gradient(to top, rgba(0,255,136,.5), transparent);
-    transform-origin: bottom center; opacity:.4;
-}
-.ai-rays span:nth-child(1){ transform: translate(-50%,-100%) rotate(0deg); }
-.ai-rays span:nth-child(2){ transform: translate(-50%,-100%) rotate(30deg); }
-.ai-rays span:nth-child(3){ transform: translate(-50%,-100%) rotate(60deg); }
-.ai-rays span:nth-child(4){ transform: translate(-50%,-100%) rotate(90deg); }
-.ai-rays span:nth-child(5){ transform: translate(-50%,-100%) rotate(120deg); }
-.ai-rays span:nth-child(6){ transform: translate(-50%,-100%) rotate(150deg); }
-.ai-rays span:nth-child(7){ transform: translate(-50%,-100%) rotate(180deg); }
-.ai-rays span:nth-child(8){ transform: translate(-50%,-100%) rotate(210deg); }
-.ai-rays span:nth-child(9){ transform: translate(-50%,-100%) rotate(240deg); }
-.ai-rays span:nth-child(10){ transform: translate(-50%,-100%) rotate(270deg); }
-.ai-rays span:nth-child(11){ transform: translate(-50%,-100%) rotate(300deg); }
-.ai-rays span:nth-child(12){ transform: translate(-50%,-100%) rotate(330deg); }
-/* SVG 구 그물망 (위·경선) */
-.ai-mesh { position:absolute; width:300px; height:300px; animation: spinB 30s linear infinite; opacity:.5; }
-.ai-mesh ellipse, .ai-mesh circle { fill:none; stroke:rgba(0,255,136,.4); stroke-width:0.7; }
+.ai-mesh { position:absolute; width:290px; height:290px; animation: spinA 30s linear infinite; opacity:.5; }
+.ai-mesh ellipse, .ai-mesh circle { fill:none; stroke:#00ff88; stroke-width:.6; vector-effect:non-scaling-stroke; }
+.ai-rays { position:absolute; width:330px; height:330px; animation: raySpin 45s linear infinite; }
+.ai-rays line { stroke:#7cffc4; stroke-width:.8; }
+.ai-rays g { animation: rayPulse 3.5s ease-in-out infinite; }
+@keyframes raySpin { from{transform:rotate(0)} to{transform:rotate(-360deg)} }
+@keyframes rayPulse { 0%,100%{opacity:.12} 50%{opacity:.42} }
 </style>
 <div class="ai-core-wrap">
   <div class="ai-core">
     <div class="ai-halo"></div>
-    <div class="ai-rays"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-    <svg class="ai-mesh" viewBox="0 0 300 300">
-      <circle cx="150" cy="150" r="110"/>
-      <ellipse cx="150" cy="150" rx="110" ry="38"/>
-      <ellipse cx="150" cy="150" rx="110" ry="70"/>
-      <ellipse cx="150" cy="150" rx="110" ry="100"/>
-      <ellipse cx="150" cy="150" rx="38" ry="110"/>
-      <ellipse cx="150" cy="150" rx="70" ry="110"/>
-      <ellipse cx="150" cy="150" rx="100" ry="110"/>
+    <svg class="ai-rays" viewBox="0 0 330 330">
+      <g>
+        <line x1="165" y1="165" x2="165" y2="8"/>
+        <line x1="165" y1="165" x2="322" y2="165"/>
+        <line x1="165" y1="165" x2="165" y2="322"/>
+        <line x1="165" y1="165" x2="8" y2="165"/>
+        <line x1="165" y1="165" x2="276" y2="54"/>
+        <line x1="165" y1="165" x2="54" y2="276"/>
+        <line x1="165" y1="165" x2="276" y2="276"/>
+        <line x1="165" y1="165" x2="54" y2="54"/>
+        <line x1="165" y1="165" x2="240" y2="25"/>
+        <line x1="165" y1="165" x2="90" y2="305"/>
+        <line x1="165" y1="165" x2="305" y2="240"/>
+        <line x1="165" y1="165" x2="25" y2="90"/>
+      </g>
     </svg>
     <div class="ai-ring ai-r3"></div>
     <div class="ai-ring ai-r2"></div>
+    <svg class="ai-mesh" viewBox="0 0 290 290">
+      <circle cx="145" cy="145" r="142"/>
+      <ellipse cx="145" cy="145" rx="142" ry="48"/>
+      <ellipse cx="145" cy="145" rx="142" ry="94"/>
+      <ellipse cx="145" cy="145" rx="142" ry="130"/>
+      <ellipse cx="145" cy="145" rx="48" ry="142"/>
+      <ellipse cx="145" cy="145" rx="94" ry="142"/>
+      <ellipse cx="145" cy="145" rx="130" ry="142"/>
+    </svg>
     <div class="ai-eq"></div>
     <div class="ai-eq2"></div>
     <div class="ai-ring ai-r1"></div>
