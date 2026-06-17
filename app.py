@@ -505,6 +505,29 @@ def assistant_collect(ticker: str, period: str = "6mo"):
     return info
 
 
+def tts_clean(text: str) -> str:
+    """TTS가 자연스럽게 읽도록 숫자·기호·약어를 말로 풀어준다."""
+    import re
+    t = text
+    # 마크다운/특수기호 제거
+    for ch in ["*", "—", "👉", "•", "·", "\"", "#"]:
+        t = t.replace(ch, " ")
+    # 약어 → 한글 발음
+    t = t.replace("RSI", "알에스아이").replace("ATR", "에이티알")
+    t = t.replace("/100", "")  # "47/100" → "47" (이미 점수라고 말함)
+    # 종목코드 .KS / .KQ 꼬리 제거(있으면)
+    t = re.sub(r"\.(KS|KQ)\b", "", t)
+    # %p, % 풀어읽기
+    t = t.replace("%p", " 퍼센트포인트").replace("%", " 퍼센트")
+    # +N / -N 부호 풀어읽기 (숫자 앞 부호만)
+    t = re.sub(r"\+(\d)", r"플러스 \1", t)
+    t = re.sub(r"\-(\d)", r"마이너스 \1", t)
+    # 줄바꿈 → 쉼(마침표)로, 공백 정리
+    t = t.replace("\n", ". ")
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
 def assistant_answer(info: dict, question: str = "") -> str:
     """모은 지표 + 질문으로 한국어 답을 조립한다. 예측·추천은 절대 안 함."""
     q = question.strip()
@@ -1131,8 +1154,7 @@ elif st.session_state.page == "ai":
 """, unsafe_allow_html=True)
 
             # 🔊 음성으로 읽어주기 (브라우저 음성합성, 무료) — 자동 1회 + 다시 듣기 버튼
-            speak_txt = (answer.replace("*", "").replace("—", " ")
-                         .replace("👉", "").replace("\n", " ").replace('"', "'"))
+            speak_txt = tts_clean(answer)
             components.html(f"""
 <div style="text-align:center;">
   <button id="speakBtn" style="background:rgba(0,255,136,.12); color:#7cffc4;
@@ -1142,17 +1164,44 @@ elif st.session_state.page == "ai":
 <script>
 (function(){{
   var txt = "{speak_txt}";
+  // 한국어 남자 목소리 우선 선택 (없으면 한국어 아무거나)
+  function pickVoice(){{
+    var vs = window.speechSynthesis.getVoices() || [];
+    var ko = vs.filter(function(v){{ return (v.lang||"").toLowerCase().indexOf("ko") === 0; }});
+    if (ko.length === 0) return null;
+    // 남자 목소리 키워드 우선
+    var maleKeys = ["male","남","injoon","inho","minsu","google 한국","heami"];
+    for (var k=0;k<maleKeys.length;k++){{
+      for (var i=0;i<ko.length;i++){{
+        if ((ko[i].name||"").toLowerCase().indexOf(maleKeys[k]) !== -1) return ko[i];
+      }}
+    }}
+    // 'female/여' 가 명시된 건 피하고 나머지 첫 번째
+    for (var j=0;j<ko.length;j++){{
+      var nm = (ko[j].name||"").toLowerCase();
+      if (nm.indexOf("female") === -1 && nm.indexOf("여") === -1) return ko[j];
+    }}
+    return ko[0];
+  }}
   function speak(){{
     try {{
       window.speechSynthesis.cancel();
       var u = new SpeechSynthesisUtterance(txt);
-      u.lang = "ko-KR"; u.rate = 1.05; u.pitch = 1.0;
+      u.lang = "ko-KR";
+      u.rate = 0.95;   // 살짝 천천히 (덜 어색하게)
+      u.pitch = 0.85;  // 톤 낮춰서 남성적이고 차분하게
+      var v = pickVoice();
+      if (v) u.voice = v;
       window.speechSynthesis.speak(u);
     }} catch(e) {{}}
   }}
   document.getElementById('speakBtn').addEventListener('click', speak);
-  // 답이 나오면 자동으로 한 번 읽어줌
-  setTimeout(speak, 400);
+  // 목소리 목록이 늦게 로드되는 브라우저 대응
+  if (window.speechSynthesis.getVoices().length === 0) {{
+    window.speechSynthesis.onvoiceschanged = function(){{ setTimeout(speak, 200); }};
+  }} else {{
+    setTimeout(speak, 400);
+  }}
 }})();
 </script>
 """, height=56)
