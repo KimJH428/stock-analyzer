@@ -10,6 +10,7 @@
 # ============================================================
 
 import streamlit as st
+import streamlit.components.v1 as components
 import yfinance as yf
 import pandas as pd
 import warnings
@@ -25,6 +26,117 @@ except Exception:
     MIC_AVAILABLE = False
 
 warnings.filterwarnings("ignore")
+
+
+# ============================================================
+#  3D 코어 구 (Three.js) — components.html로 삽입
+# ============================================================
+def core_3d_html(size: int = 320):
+    """진짜 3D로 회전하는 네온 그린 코어. 점 구름 + 와이어프레임 구 + 빛줄기 + 발광 핵."""
+    return f"""
+<div id="core3d" style="width:100%; height:{size}px; background:transparent;"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){{
+  var W = document.getElementById('core3d').clientWidth || {size};
+  var H = {size};
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(50, W/H, 0.1, 1000);
+  camera.position.z = 5.2;
+  var renderer = new THREE.WebGLRenderer({{ antialias:true, alpha:true }});
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  document.getElementById('core3d').appendChild(renderer.domElement);
+
+  var core = new THREE.Group();
+  scene.add(core);
+
+  var GREEN = 0x00ff88, MINT = 0x7cffc4;
+
+  // 1) 점 구름 — 진짜 구 표면에 박힌 점들 (피보나치 분포로 고르게)
+  var N = 900;
+  var pg = new THREE.BufferGeometry();
+  var pos = new Float32Array(N*3);
+  var R = 2.0;
+  var phi = Math.PI * (3 - Math.sqrt(5));
+  for (var i=0;i<N;i++){{
+    var y = 1 - (i/(N-1))*2;
+    var rad = Math.sqrt(1-y*y);
+    var th = phi*i;
+    pos[i*3]   = Math.cos(th)*rad*R;
+    pos[i*3+1] = y*R;
+    pos[i*3+2] = Math.sin(th)*rad*R;
+  }}
+  pg.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  var pmat = new THREE.PointsMaterial({{ color:MINT, size:0.045, transparent:true, opacity:0.9 }});
+  var points = new THREE.Points(pg, pmat);
+  core.add(points);
+
+  // 2) 와이어프레임 구 (그물망 느낌)
+  var wire = new THREE.Mesh(
+    new THREE.SphereGeometry(1.97, 22, 16),
+    new THREE.MeshBasicMaterial({{ color:GREEN, wireframe:true, transparent:true, opacity:0.16 }})
+  );
+  core.add(wire);
+
+  // 3) 발광 핵 (중심)
+  var nucleus = new THREE.Mesh(
+    new THREE.SphereGeometry(0.42, 24, 24),
+    new THREE.MeshBasicMaterial({{ color:0xd6ffe9 }})
+  );
+  core.add(nucleus);
+  var glow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.72, 24, 24),
+    new THREE.MeshBasicMaterial({{ color:GREEN, transparent:true, opacity:0.28 }})
+  );
+  core.add(glow);
+
+  // 4) 빛줄기 (중심에서 뻗는 선)
+  var rays = new THREE.Group();
+  for (var r=0;r<14;r++){{
+    var dir = new THREE.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1).normalize();
+    var len = 2.4 + Math.random()*1.4;
+    var geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0,0,0), dir.clone().multiplyScalar(len)
+    ]);
+    var lmat = new THREE.LineBasicMaterial({{ color:MINT, transparent:true, opacity:0.22 }});
+    rays.add(new THREE.Line(geo, lmat));
+  }}
+  core.add(rays);
+
+  // 5) 적도 링 (비스듬히)
+  var ringGeo = new THREE.TorusGeometry(2.5, 0.012, 8, 80);
+  var ringMat = new THREE.MeshBasicMaterial({{ color:GREEN, transparent:true, opacity:0.5 }});
+  var ring1 = new THREE.Mesh(ringGeo, ringMat); ring1.rotation.x = 1.2; core.add(ring1);
+  var ring2 = new THREE.Mesh(ringGeo, ringMat.clone()); ring2.rotation.x = 1.9; ring2.rotation.y = 0.6; core.add(ring2);
+
+  core.rotation.x = 0.35;
+  var t = 0;
+  function animate(){{
+    requestAnimationFrame(animate);
+    t += 0.01;
+    points.rotation.y += 0.0035;
+    wire.rotation.y   += 0.0035;
+    rays.rotation.y   -= 0.0022;
+    rays.rotation.x   += 0.0012;
+    ring1.rotation.z  += 0.004;
+    ring2.rotation.z  -= 0.003;
+    // 핵 맥박
+    var s = 1 + Math.sin(t*2.2)*0.14;
+    nucleus.scale.set(s,s,s);
+    glow.scale.set(s*1.05, s*1.05, s*1.05);
+    glow.material.opacity = 0.22 + Math.sin(t*2.2)*0.08;
+    renderer.render(scene, camera);
+  }}
+  animate();
+
+  window.addEventListener('resize', function(){{
+    var w2 = document.getElementById('core3d').clientWidth || {size};
+    camera.aspect = w2/H; camera.updateProjectionMatrix(); renderer.setSize(w2, H);
+  }});
+}})();
+</script>
+"""
 
 # ---------- 색상표 (다크 + 네온 그린 터미널 테마) ----------
 BG      = "#0B0F0D"   # 거의 검정에 가까운 배경
@@ -865,151 +977,9 @@ if st.session_state.page == "home":
         unsafe_allow_html=True,
     )
 
-    # ---- 중앙: 초록 네온 코어 (AI 비서 진입) ----
-    st.markdown("""
-<style>
-.core-wrap {
-    display: flex; flex-direction: column; align-items: center;
-    margin: 6px 0 2px;
-}
-.core {
-    position: relative; width: 280px; height: 280px;
-    display: flex; align-items: center; justify-content: center;
-}
-/* 가운데 빛나는 핵 */
-.core-nucleus {
-    position: absolute; width: 54px; height: 54px; border-radius: 50%;
-    background: radial-gradient(circle at 40% 35%, #d6ffe9, #00ff88 45%, #00b865 75%);
-    box-shadow: 0 0 30px #00ff88, 0 0 70px rgba(0,255,136,.7), 0 0 120px rgba(0,255,136,.4);
-    animation: nucleusPulse 2.6s ease-in-out infinite;
-    z-index: 3;
-}
-@keyframes nucleusPulse {
-    0%,100% { transform: scale(1);    box-shadow: 0 0 30px #00ff88, 0 0 70px rgba(0,255,136,.7), 0 0 120px rgba(0,255,136,.4); }
-    50%     { transform: scale(1.18); box-shadow: 0 0 40px #00ff88, 0 0 95px rgba(0,255,136,.85),0 0 160px rgba(0,255,136,.55); }
-}
-/* 회전하는 네온 링들 (비스듬히) */
-.core-ring {
-    position: absolute; border-radius: 50%;
-    border: 1.5px solid rgba(0,255,136,.55);
-    box-shadow: 0 0 12px rgba(0,255,136,.4), inset 0 0 12px rgba(0,255,136,.25);
-}
-.ring-1 { width: 130px; height: 130px; animation: spinA 7s linear infinite;  border-style: dashed; }
-.ring-2 { width: 190px; height: 190px; animation: spinB 11s linear infinite reverse; border-top-color: rgba(0,255,136,.9); border-right-color: transparent; }
-.ring-3 { width: 250px; height: 250px; animation: spinA 16s linear infinite; border-left-color: rgba(124,255,196,.9); border-bottom-color: transparent; }
-/* 3D 느낌: 비스듬한 타원 링 (자전하는 적도처럼) */
-.ring-eq {
-    position: absolute; width: 240px; height: 92px; border-radius: 50%;
-    border: 1.5px solid rgba(0,255,136,.45);
-    box-shadow: 0 0 14px rgba(0,255,136,.3);
-    animation: spinFlat 9s linear infinite;
-}
-.ring-eq2 {
-    position: absolute; width: 92px; height: 240px; border-radius: 50%;
-    border: 1.5px solid rgba(0,255,136,.35);
-    box-shadow: 0 0 14px rgba(0,255,136,.25);
-    animation: spinFlat 13s linear infinite reverse;
-}
-@keyframes spinA { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes spinB { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes spinFlat { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-/* 구 표면 점들 (별가루) */
-.core-dots { position: absolute; width: 230px; height: 230px; animation: spinA 24s linear infinite; }
-.core-dots span {
-    position: absolute; width: 2.5px; height: 2.5px; border-radius: 50%;
-    background: #7cffc4; box-shadow: 0 0 4px #00ff88;
-}
-/* 점들을 CSS로 직접 배치 (구 표면처럼) */
-.core-dots span:nth-child(1){left:60px;top:40px;opacity:.7}
-.core-dots span:nth-child(2){left:170px;top:55px;opacity:.5}
-.core-dots span:nth-child(3){left:200px;top:120px;opacity:.8}
-.core-dots span:nth-child(4){left:40px;top:110px;opacity:.6}
-.core-dots span:nth-child(5){left:90px;top:30px;opacity:.5}
-.core-dots span:nth-child(6){left:150px;top:190px;opacity:.7}
-.core-dots span:nth-child(7){left:70px;top:180px;opacity:.6}
-.core-dots span:nth-child(8){left:185px;top:160px;opacity:.5}
-.core-dots span:nth-child(9){left:115px;top:50px;opacity:.8}
-.core-dots span:nth-child(10){left:30px;top:140px;opacity:.5}
-.core-dots span:nth-child(11){left:205px;top:90px;opacity:.6}
-.core-dots span:nth-child(12){left:130px;top:200px;opacity:.7}
-.core-dots span:nth-child(13){left:50px;top:75px;opacity:.5}
-.core-dots span:nth-child(14){left:175px;top:30px;opacity:.6}
-.core-dots span:nth-child(15){left:100px;top:195px;opacity:.5}
-.core-dots span:nth-child(16){left:215px;top:140px;opacity:.7}
-.core-dots span:nth-child(17){left:25px;top:100px;opacity:.6}
-.core-dots span:nth-child(18){left:145px;top:35px;opacity:.5}
-/* 바깥 후광 */
-.core-halo {
-    position: absolute; width: 300px; height: 300px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(0,255,136,.10), transparent 65%);
-    animation: haloBreath 4s ease-in-out infinite;
-}
-@keyframes haloBreath { 0%,100% { opacity:.6; transform:scale(1);} 50%{opacity:1; transform:scale(1.08);} }
-/* 클릭 유도 라벨 */
-.core-label {
-    margin-top: 6px; color: #7cffc4; font-size: 14px; letter-spacing: 3px;
-    text-shadow: 0 0 8px rgba(0,255,136,.6); animation: haloBreath 3s ease-in-out infinite;
-}
-/* hover 시 살짝 커지고 빨라지는 느낌 */
-.core:hover .core-nucleus { animation-duration: 1.1s; }
-.core:hover .ring-1 { animation-duration: 2.5s; }
-.core:hover .ring-2 { animation-duration: 4s; }
-.core { cursor: default; transition: transform .25s; }
-.core-wrap:hover .core { transform: scale(1.05); }
+    # ---- 중앙: 3D 코어 구 (Three.js) ----
+    components.html(core_3d_html(size=340), height=350)
 
-/* SVG 그물망 구 (위선/경선) */
-.core-mesh { position:absolute; width:230px; height:230px; animation: spinA 30s linear infinite; opacity:.55; }
-.core-mesh ellipse, .core-mesh circle { fill:none; stroke:#00ff88; stroke-width:.6; vector-effect:non-scaling-stroke; }
-/* 중심에서 뻗는 빛줄기 */
-.core-rays { position:absolute; width:260px; height:260px; animation: raySpin 40s linear infinite; }
-.core-rays line { stroke:#7cffc4; stroke-width:.8; opacity:.25; }
-@keyframes raySpin { from{transform:rotate(0)} to{transform:rotate(-360deg)} }
-.ray-flash { animation: rayPulse 3s ease-in-out infinite; }
-@keyframes rayPulse { 0%,100%{opacity:.12} 50%{opacity:.4} }
-</style>
-<div class="core-wrap">
-  <div class="core" id="coreBtn">
-    <div class="core-halo"></div>
-    <!-- 빛줄기 (중심에서 방사형) -->
-    <svg class="core-rays" viewBox="0 0 260 260">
-      <g class="ray-flash">
-        <line x1="130" y1="130" x2="130" y2="6"/>
-        <line x1="130" y1="130" x2="254" y2="130"/>
-        <line x1="130" y1="130" x2="130" y2="254"/>
-        <line x1="130" y1="130" x2="6" y2="130"/>
-        <line x1="130" y1="130" x2="218" y2="42"/>
-        <line x1="130" y1="130" x2="42" y2="218"/>
-        <line x1="130" y1="130" x2="218" y2="218"/>
-        <line x1="130" y1="130" x2="42" y2="42"/>
-        <line x1="130" y1="130" x2="190" y2="20"/>
-        <line x1="130" y1="130" x2="70" y2="240"/>
-        <line x1="130" y1="130" x2="240" y2="190"/>
-        <line x1="130" y1="130" x2="20" y2="70"/>
-      </g>
-    </svg>
-    <div class="core-halo"></div>
-    <div class="core-ring ring-3"></div>
-    <div class="core-ring ring-2"></div>
-    <!-- 그물망 구 (위선 + 경선) -->
-    <svg class="core-mesh" viewBox="0 0 230 230">
-      <circle cx="115" cy="115" r="112"/>
-      <!-- 위선 (가로 타원, 점점 납작) -->
-      <ellipse cx="115" cy="115" rx="112" ry="38"/>
-      <ellipse cx="115" cy="115" rx="112" ry="74"/>
-      <ellipse cx="115" cy="115" rx="112" ry="104"/>
-      <!-- 경선 (세로 타원) -->
-      <ellipse cx="115" cy="115" rx="38" ry="112"/>
-      <ellipse cx="115" cy="115" rx="74" ry="112"/>
-      <ellipse cx="115" cy="115" rx="104" ry="112"/>
-    </svg>
-    <div class="ring-eq"></div>
-    <div class="ring-eq2"></div>
-    <div class="core-ring ring-1"></div>
-    <div class="core-dots" id="coreDots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-    <div class="core-nucleus"></div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
 
     # 구 바로 아래에 딱 붙는 버튼 (구와 한 덩어리처럼) — 누르면 AI 페이지로
     bcol1, bcol2, bcol3 = st.columns([1, 1.6, 1])
@@ -1061,109 +1031,8 @@ elif st.session_state.page == "ai":
     st.markdown(AMBIENT_BG, unsafe_allow_html=True)
     st.button("← 홈으로", on_click=go_page, args=("home",))
 
-    # 큰 코어 (AI 비서의 얼굴)
-    st.markdown("""
-<style>
-.ai-core-wrap { display:flex; flex-direction:column; align-items:center; margin: 10px 0 4px;
-    animation: warpIn 1.1s cubic-bezier(.2,.8,.2,1) both; }
-/* 빨려들어온 듯 확 나타나는 등장: 작게 회전하며 시작 → 제자리 */
-@keyframes warpIn {
-    0%   { transform: scale(0.04) rotate(-220deg); opacity: 0; filter: blur(8px); }
-    55%  { opacity: 1; filter: blur(0); }
-    70%  { transform: scale(1.12) rotate(8deg); }
-    100% { transform: scale(1) rotate(0deg); opacity: 1; }
-}
-.ai-core { position: relative; width: 340px; height: 340px; display:flex; align-items:center; justify-content:center; }
-.ai-nucleus {
-    position:absolute; width:70px; height:70px; border-radius:50%;
-    background: radial-gradient(circle at 40% 35%, #d6ffe9, #00ff88 45%, #00b865 75%);
-    box-shadow: 0 0 36px #00ff88, 0 0 90px rgba(0,255,136,.7), 0 0 150px rgba(0,255,136,.45);
-    animation: aiPulse 2.4s ease-in-out infinite; z-index:3;
-}
-@keyframes aiPulse {
-    0%,100%{ transform:scale(1);} 50%{ transform:scale(1.2);}
-}
-.ai-ring { position:absolute; border-radius:50%; border:1.5px solid rgba(0,255,136,.55);
-    box-shadow:0 0 14px rgba(0,255,136,.4), inset 0 0 14px rgba(0,255,136,.25); }
-.ai-r1 { width:160px; height:160px; animation: spinA 6s linear infinite; border-style:dashed; }
-.ai-r2 { width:235px; height:235px; animation: spinB 10s linear infinite reverse; border-top-color:rgba(0,255,136,.9); border-right-color:transparent; }
-.ai-r3 { width:310px; height:310px; animation: spinA 15s linear infinite; border-left-color:rgba(124,255,196,.9); border-bottom-color:transparent; }
-.ai-eq { position:absolute; width:300px; height:115px; border-radius:50%; border:1.5px solid rgba(0,255,136,.45); box-shadow:0 0 16px rgba(0,255,136,.3); animation: spinFlat 8s linear infinite; }
-.ai-eq2{ position:absolute; width:115px; height:300px; border-radius:50%; border:1.5px solid rgba(0,255,136,.35); box-shadow:0 0 16px rgba(0,255,136,.25); animation: spinFlat 12s linear infinite reverse; }
-.ai-halo { position:absolute; width:380px; height:380px; border-radius:50%;
-    background: radial-gradient(circle, rgba(0,255,136,.12), transparent 65%); animation: haloBreath 4s ease-in-out infinite; }
-@keyframes spinA{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-@keyframes spinB{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-@keyframes spinFlat{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-@keyframes haloBreath{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}
-.ai-dots{ position:absolute; width:290px; height:290px; animation: spinA 22s linear infinite; }
-.ai-dots span{ position:absolute; width:2.5px; height:2.5px; border-radius:50%; background:#7cffc4; box-shadow:0 0 4px #00ff88; }
-.ai-dots span:nth-child(1){left:80px;top:50px;opacity:.7}
-.ai-dots span:nth-child(2){left:210px;top:70px;opacity:.5}
-.ai-dots span:nth-child(3){left:250px;top:150px;opacity:.8}
-.ai-dots span:nth-child(4){left:55px;top:140px;opacity:.6}
-.ai-dots span:nth-child(5){left:120px;top:40px;opacity:.5}
-.ai-dots span:nth-child(6){left:190px;top:240px;opacity:.7}
-.ai-dots span:nth-child(7){left:90px;top:230px;opacity:.6}
-.ai-dots span:nth-child(8){left:235px;top:200px;opacity:.5}
-.ai-dots span:nth-child(9){left:145px;top:60px;opacity:.8}
-.ai-dots span:nth-child(10){left:40px;top:180px;opacity:.5}
-.ai-dots span:nth-child(11){left:255px;top:110px;opacity:.6}
-.ai-dots span:nth-child(12){left:165px;top:250px;opacity:.7}
-.ai-dots span:nth-child(13){left:65px;top:95px;opacity:.5}
-.ai-dots span:nth-child(14){left:220px;top:40px;opacity:.6}
-.ai-dots span:nth-child(15){left:125px;top:245px;opacity:.5}
-.ai-dots span:nth-child(16){left:265px;top:175px;opacity:.7}
-.ai-dots span:nth-child(17){left:35px;top:125px;opacity:.6}
-.ai-dots span:nth-child(18){left:180px;top:45px;opacity:.5}
-.ai-dots span:nth-child(19){left:100px;top:265px;opacity:.6}
-.ai-dots span:nth-child(20){left:245px;top:255px;opacity:.5}
-.ai-mesh { position:absolute; width:290px; height:290px; animation: spinA 30s linear infinite; opacity:.5; }
-.ai-mesh ellipse, .ai-mesh circle { fill:none; stroke:#00ff88; stroke-width:.6; vector-effect:non-scaling-stroke; }
-.ai-rays { position:absolute; width:330px; height:330px; animation: raySpin 45s linear infinite; }
-.ai-rays line { stroke:#7cffc4; stroke-width:.8; }
-.ai-rays g { animation: rayPulse 3.5s ease-in-out infinite; }
-@keyframes raySpin { from{transform:rotate(0)} to{transform:rotate(-360deg)} }
-@keyframes rayPulse { 0%,100%{opacity:.12} 50%{opacity:.42} }
-</style>
-<div class="ai-core-wrap">
-  <div class="ai-core">
-    <div class="ai-halo"></div>
-    <svg class="ai-rays" viewBox="0 0 330 330">
-      <g>
-        <line x1="165" y1="165" x2="165" y2="8"/>
-        <line x1="165" y1="165" x2="322" y2="165"/>
-        <line x1="165" y1="165" x2="165" y2="322"/>
-        <line x1="165" y1="165" x2="8" y2="165"/>
-        <line x1="165" y1="165" x2="276" y2="54"/>
-        <line x1="165" y1="165" x2="54" y2="276"/>
-        <line x1="165" y1="165" x2="276" y2="276"/>
-        <line x1="165" y1="165" x2="54" y2="54"/>
-        <line x1="165" y1="165" x2="240" y2="25"/>
-        <line x1="165" y1="165" x2="90" y2="305"/>
-        <line x1="165" y1="165" x2="305" y2="240"/>
-        <line x1="165" y1="165" x2="25" y2="90"/>
-      </g>
-    </svg>
-    <div class="ai-ring ai-r3"></div>
-    <div class="ai-ring ai-r2"></div>
-    <svg class="ai-mesh" viewBox="0 0 290 290">
-      <circle cx="145" cy="145" r="142"/>
-      <ellipse cx="145" cy="145" rx="142" ry="48"/>
-      <ellipse cx="145" cy="145" rx="142" ry="94"/>
-      <ellipse cx="145" cy="145" rx="142" ry="130"/>
-      <ellipse cx="145" cy="145" rx="48" ry="142"/>
-      <ellipse cx="145" cy="145" rx="94" ry="142"/>
-      <ellipse cx="145" cy="145" rx="130" ry="142"/>
-    </svg>
-    <div class="ai-eq"></div>
-    <div class="ai-eq2"></div>
-    <div class="ai-ring ai-r1"></div>
-    <div class="ai-dots"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-    <div class="ai-nucleus"></div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    # 큰 코어 (AI 비서의 얼굴) — 3D
+    components.html(core_3d_html(size=380), height=390)
 
     st.markdown(
         f'<div style="text-align:center;">'
