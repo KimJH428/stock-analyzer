@@ -9,6 +9,7 @@
 #  홈 홀로그램, 한국식 캔들, 금별/보라 마커, 데이터 예비 체계는 그대로.
 # ============================================================
 
+from signal_scoreboard import scoreboard
 import streamlit as st
 import streamlit.components.v1 as components
 import yfinance as yf
