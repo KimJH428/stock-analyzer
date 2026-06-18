@@ -1833,8 +1833,8 @@ else:
     st.write("")
 
     # ---------- 탭: 차트 / 매매 내역 / 읽는 법 ----------
-    tab_chart, tab_plan, tab_value, tab_trades, tab_guide = st.tabs(
-        ["🕯️ 차트", "🎯 매매 플랜", "💰 밸류에이션", "📋 매매 내역", "📖 읽는 법"])
+    tab_chart, tab_plan, tab_value, tab_trades, tab_guide, tab_score = st.tabs(
+        ["🕯️ 차트", "🎯 매매 플랜", "💰 밸류에이션", "📋 매매 내역", "📖 읽는 법", "🧮 신호 채점"])
 
     with tab_chart:
         st.markdown(f"#### {q['ticker']} · {PERIOD_LABEL[q['period']]}")
@@ -2155,3 +2155,22 @@ else:
   높을수록 '이미 많이 올라서 지금 새로 들어가면 위험'하다는 뜻. **이건 미래 예측이 아니라 현재 과열 정도를 요약한 거야.**
   점수가 낮다고 '사도 좋다'는 신호가 절대 아니고, 높아도 더 오를 수 있어. FOMO로 꼭대기에 뛰어드는 걸 막는 용도로만 쓰면 돼.
 """, unsafe_allow_html=True)
+
+    with tab_score:
+        st.markdown("#### 🧮 신호 채점 — 이 신호가 진짜 엣지가 있나?")
+        st.caption(
+            "과거 전체에 신호를 돌려서, 신호 낸 날의 며칠 뒤 수익률을 "
+            "'아무 날에나 그냥 들고 있었을 때(baseline)'와 비교한다. "
+            "edge_vs_baseline 이 0보다 작으면 그 지표는 화면에서 지워도 되는 장식이다."
+        )
+        horizon = st.slider("며칠 뒤 수익률로 채점할까", 1, 20, 5, key="score_h")
+        try:
+            board = scoreboard(data, horizon=horizon)
+            st.dataframe(board, use_container_width=True)
+            st.caption(
+                "⚠️ 한 종목·한 구간 결과는 우연일 수 있어. 표본(n_signals)이 30 미만이면 그냥 참고만. "
+                "진짜 검증은 데이터를 둘로 잘라, 한쪽에서 고른 신호가 다른 쪽에서도 통하는지 보는 거야 — 다음 단계."
+            )
+        except Exception as e:
+            st.error(f"채점 중 오류: {e}")
+            st.caption("data에 'Close' 컬럼이 있어야 작동해. 위 오류 메시지를 그대로 복붙해서 클로드한테 보여줘.")
